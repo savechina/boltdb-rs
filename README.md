@@ -1,2 +1,2 @@
-# blot-rs
-blotdb rust implement
+# boltdb-rs
+boltdb rust implement
