@@ -56,7 +56,7 @@ impl Inode {
     }
 }
 
-#[derive(Default)]
+#[derive(Default,Debug)]
 pub(crate) struct Inodes {
     pub(crate) inodes: Vec<Inode>,
 }
@@ -86,6 +86,8 @@ impl Inodes {
 /// Assuming necessary struct and trait definitions for Inode, Page, etc.
 // Initializes the node from a page.
 fn read_inode_from_page(page: &Page) -> Vec<Inode> {
+    //TODO: rewrite handle write Inode to Page   2024/03/05
+
     let mut inodes = Vec::with_capacity(page.count() as usize);
 
     let is_leaf = page.is_leaf_page();
@@ -121,6 +123,8 @@ fn read_inode_from_page(page: &Page) -> Vec<Inode> {
 
 // Writes the items onto one or more pages.
 fn write_inode_to_page(inodes: &[Inode], page: &mut Page) -> u32 {
+    //TODO: rewrite handle write Inode to Page   2024/03/05
+
     // Loop over each item and write it to the page.
     // off tracks the offset into p of the start of the next data.
     let mut offset: usize = page.page_element_size() as usize * inodes.len();

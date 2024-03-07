@@ -19,7 +19,7 @@ const MAX_FILL_PERCENT: f64 = 1.0;
 const DEFAULT_FILL_PERCENT: f64 = 0.5;
 
 // Bucket represents a collection of key/value pairs inside the database.
-struct Bucket {
+pub struct Bucket {
     bucket: InBucket,
     tx: Tx, // the associated transaction
     // buckets  :map[string]*Bucket ,// subbucket cache
