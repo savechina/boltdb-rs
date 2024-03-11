@@ -1,3 +1,8 @@
+use std::cmp::Ordering;
+use std::result::Result;
+use std::slice::Iter;
+use std::vec::IntoIter;
+
 use crate::common::page::{BranchPageElement, LeafPageElement, Page, PgId};
 use crate::common::types::Byte;
 
@@ -31,7 +36,7 @@ impl Inode {
         self.flags = flags;
     }
 
-    fn key(&self) -> &Key {
+    pub(crate) fn key(&self) -> &Key {
         &self.key
     }
 
@@ -39,7 +44,7 @@ impl Inode {
         self.key = key;
     }
 
-    fn value(&self) -> &Value {
+    pub(crate) fn value(&self) -> &Value {
         &self.value
     }
 
@@ -47,7 +52,7 @@ impl Inode {
         self.value = value;
     }
 
-    fn pgid(&self) -> PgId {
+    pub(crate) fn pgid(&self) -> PgId {
         self.pgid
     }
 
@@ -56,15 +61,25 @@ impl Inode {
     }
 }
 
-#[derive(Default,Debug)]
+#[derive(Default, Debug)]
 pub(crate) struct Inodes {
     pub(crate) inodes: Vec<Inode>,
 }
 
 impl Inodes {
     #[inline]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.inodes.len()
+    }
+
+    #[inline]
+    pub(crate) fn get(&self, index: usize) -> &Inode {
+        &self.inodes[index]
+    }
+
+    #[inline]
+    pub(crate) fn get_mut(&mut self, index: usize) -> &mut Inode {
+        &mut self.inodes[index]
     }
 
     #[inline]
@@ -78,14 +93,35 @@ impl Inodes {
     }
 
     #[inline]
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.inodes.is_empty()
+    }
+
+    #[inline]
+    pub(crate) fn remove(&mut self, index: usize) {
+        self.inodes.remove(index);
+    }
+
+    #[inline]
+    pub(crate) fn iter(&self) -> Iter<'_, Inode> {
+        self.inodes.iter()
+    }
+
+    #[inline]
+    pub(crate) fn binary_search_by(&self, key: &[u8]) -> Result<usize, usize> {
+        self.inodes
+            .binary_search_by(|node| node.key.as_slice().cmp(key))
+    }
+
+    #[inline]
+    pub(crate) fn as_slice(&self) -> &Vec<Inode> {
+        &self.inodes
     }
 }
 
 /// Assuming necessary struct and trait definitions for Inode, Page, etc.
 // Initializes the node from a page.
-fn read_inode_from_page(page: &Page) -> Vec<Inode> {
+pub(crate) fn read_inode_from_page(page: &Page) -> Vec<Inode> {
     //TODO: rewrite handle write Inode to Page   2024/03/05
 
     let mut inodes = Vec::with_capacity(page.count() as usize);
@@ -122,7 +158,7 @@ fn read_inode_from_page(page: &Page) -> Vec<Inode> {
 }
 
 // Writes the items onto one or more pages.
-fn write_inode_to_page(inodes: &[Inode], page: &mut Page) -> u32 {
+pub(crate) fn write_inode_to_page(inodes: &[Inode], page: &mut Page) -> u32 {
     //TODO: rewrite handle write Inode to Page   2024/03/05
 
     // Loop over each item and write it to the page.

@@ -20,13 +20,13 @@ pub(crate) type PgId = u64;
 /// Page header size
 pub(crate) const PAGE_HEADER_SIZE: usize = mem::size_of::<Page>();
 
-const MIN_KEYS_PER_PAGE: i32 = 2;
+pub(crate) const MIN_KEYS_PER_PAGE: i32 = 2;
 
 /// BranchPageElement size
-const BRANCH_PAGE_ELEMENT_SIZE: usize = mem::size_of::<BranchPageElement>();
+pub(crate) const BRANCH_PAGE_ELEMENT_SIZE: usize = mem::size_of::<BranchPageElement>();
 
 /// LeafPageElement size
-const LEAF_PAGE_ELEMENT_SIZE: usize = mem::size_of::<LeafPageElement>();
+pub(crate) const LEAF_PAGE_ELEMENT_SIZE: usize = mem::size_of::<LeafPageElement>();
 
 /// PgId size
 pub(crate) const PGID_SIZE: usize = mem::size_of::<PgId>();
@@ -783,7 +783,7 @@ impl PageInfo {
 ///
 ///OwnedPage is  Page impl ToOwned  trait struct
 ///
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[repr(align(64))]
 pub(crate) struct OwnedPage {
     ///Page bytes buffer
@@ -1013,9 +1013,8 @@ mod tests {
         page.set_id(123);
         page.set_flags(PageFlags::LEAF_PAGE);
         page.set_count(len as u16);
-        page.set_overflow(0); 
+        page.set_overflow(0);
 
-       
         let ptr = page.get_data_ptr();
 
         let nodes = unsafe { slice::from_raw_parts_mut(ptr as *mut LeafPageElement, len) };
@@ -1034,23 +1033,21 @@ mod tests {
             pos: 26,
             ksize: 3,
             vsize: 4,
-        }; 
+        };
 
         //to read leaf element
-        let elem= page.leaf_page_element(0);
+        let elem = page.leaf_page_element(0);
 
-        assert_eq!(elem.pos,32);
-        assert_eq!(elem.ksize,5);
-        assert_eq!(elem.vsize,5);
-        assert_eq!(elem.flags(),1);
+        assert_eq!(elem.pos, 32);
+        assert_eq!(elem.ksize, 5);
+        assert_eq!(elem.vsize, 5);
+        assert_eq!(elem.flags(), 1);
 
-        let elem1 =page.leaf_page_element(1);
-        assert_eq!(elem1.pos,26);
-        assert_eq!(elem1.ksize,3);
-        assert_eq!(elem1.vsize,4);
-        assert_eq!(elem1.flags(),0); 
- 
-
+        let elem1 = page.leaf_page_element(1);
+        assert_eq!(elem1.pos, 26);
+        assert_eq!(elem1.ksize, 3);
+        assert_eq!(elem1.vsize, 4);
+        assert_eq!(elem1.flags(), 0);
     }
 
     #[test]

@@ -10,7 +10,8 @@ mod common;
 mod errors;
 mod node;
 mod os;
-mod tx;
+pub mod tx;
+pub mod db;
 
 #[cfg(test)]
 mod tests {
