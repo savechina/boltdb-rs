@@ -83,6 +83,16 @@ impl Inodes {
     }
 
     #[inline]
+    pub(crate) fn first(&self) -> Option<&Inode> {
+        self.inodes.first()
+    }
+
+    #[inline]
+    pub(crate) fn first_mut(&mut self) -> Option<&mut Inode> {
+        self.inodes.first_mut()
+    }
+
+    #[inline]
     pub(crate) fn insert(&mut self, index: usize, inode: Inode) {
         self.inodes.insert(index, inode);
     }
@@ -121,7 +131,7 @@ impl Inodes {
 
 /// Assuming necessary struct and trait definitions for Inode, Page, etc.
 // Initializes the node from a page.
-pub(crate) fn read_inode_from_page(page: &Page) -> Vec<Inode> {
+pub(crate) fn read_inode_from_page(page: &Page) -> Inodes {
     //TODO: rewrite handle write Inode to Page   2024/03/05
 
     let mut inodes = Vec::with_capacity(page.count() as usize);
@@ -154,11 +164,12 @@ pub(crate) fn read_inode_from_page(page: &Page) -> Vec<Inode> {
         inodes.push(inode);
     }
 
-    inodes
+    Inodes { inodes: inodes }
+
 }
 
 // Writes the items onto one or more pages.
-pub(crate) fn write_inode_to_page(inodes: &[Inode], page: &mut Page) -> u32 {
+pub(crate) fn write_inode_to_page(inodes: &Inodes, page: &mut Page) -> u32 {
     //TODO: rewrite handle write Inode to Page   2024/03/05
 
     // Loop over each item and write it to the page.

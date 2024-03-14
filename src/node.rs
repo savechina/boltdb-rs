@@ -1,15 +1,16 @@
-use crate::bucket::Bucket;
+use crate::bucket::{self, Bucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
 use crate::common;
 use crate::common::inode::{Inode, Inodes, Key};
-use crate::common::page::Page;
+use crate::common::page::{Page, PageFlags};
 use crate::common::page::{
     PgId, BRANCH_PAGE_ELEMENT_SIZE, LEAF_PAGE_ELEMENT_SIZE, PAGE_HEADER_SIZE,
 };
 use crate::common::types::Byte;
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
-use std::ops::Deref;
-use std::ptr::NonNull;
+use std::io::Read;
+use std::ops::{Deref, Index};
+use std::ptr::{self, NonNull};
 use std::rc::Rc;
 use std::rc::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -335,9 +336,19 @@ impl Node {
         };
 
         // Exit if the key isn't found.
-        // if index >= self.0.inodes.borrow().len() || self.0.inodes.borrow().get(index).key().as_slice().cmp(key).is_eq() {
-        //     return;
-        // }
+        if index >= self.0.inodes.borrow().len()
+            || self
+                .0
+                .inodes
+                .borrow()
+                .get(index)
+                .key()
+                .as_slice()
+                .cmp(key)
+                .is_eq()
+        {
+            return;
+        }
 
         // Delete inode from the node.
         self.0.inodes.borrow_mut().remove(index);
@@ -352,21 +363,200 @@ impl Node {
 
         self.0.is_leaf.store(page.is_leaf_page(), Ordering::Release);
 
-        let indoes = common::inode::read_inode_from_page(page);
+        let inodes = common::inode::read_inode_from_page(page);
 
-        *self.0.inodes.borrow_mut() = Inodes::default();
+        *self.0.inodes.borrow_mut() = inodes;
 
-        // Save the first key, if any, for parent lookup on spill.
-        let key = indoes.first().map(|inode| inode.key()).cloned();
-        //    *self.0.key.borrow_mut() ;
+        if !(self.0.inodes.borrow().is_empty()) {
+            // Save the first key, if any, for parent lookup on spill.
+            let key = self
+                .0
+                .inodes
+                .borrow()
+                .first()
+                .map(|inode| inode.key().clone());
+
+            assert!(
+                key.is_none() || key.as_ref().unwrap().len() == 0,
+                "read: zero-length node key"
+            );
+
+            self.0.key.replace(key.unwrap());
+        }
+    }
+
+    /// write writes the items onto one or more pages.
+    /// The page should have p.id (might be 0 for meta or bucket-inline page) and p.overflow set
+    /// and the rest should be zeroed.
+    pub(crate) fn write(&self, page: &mut Page) {
+        // Assert preconditions
         assert!(
-            key.is_none() || key.as_ref().unwrap().len() > 0,
-            "read: zero-length node key"
+            page.count() == 0 && page.flags().bits() == 0,
+            "Node cannot be written to a non-empty page"
         );
+
+        // Initialize page flags
+        let flags = match self.is_leaf() {
+            true => PageFlags::LEAF_PAGE,
+            false => PageFlags::BRANCH_PAGE,
+        };
+
+        page.set_flags(flags);
+
+        // Check for inode overflow
+        let len = self.0.inodes.borrow().len();
+        if len >= u16::MAX as usize {
+            panic!("inode overflow: {} (pgid={})", len, page.id());
+        }
+
+        // Set page count
+        page.set_count(len as u16);
+
+        // Stop here if there are no items to write.
+        if page.count() == 0 {
+            return;
+        }
+
+        // Write inodes to page
+        common::inode::write_inode_to_page(self.0.inodes.borrow().deref(), page);
+
+        // Remove debug-only code (n.dump())
+    }
+
+   fn split(&mut self, page_size: usize) -> Vec<Node> {
+        let mut nodes = Vec::new();
+
+        let mut node = self;
+        loop {
+            // Split node into two.
+            let (a, b) = node.split_two(page_size);
+            nodes.push(a);
+
+            // If we can't split then exit the loop.
+            if b.is_none() {
+                break;
+            }
+
+            // Set node to b so it gets split on the next iteration.
+            node = b.unwrap();
+        }
+
+        nodes
+    }
+
+     fn split_two(&mut self, page_size: usize) -> (Node, Option<&mut Node>) {
+        // Ignore the split if conditions aren't met.
+        if self.0.inodes.borrow().len() <= (common::page::MIN_KEYS_PER_PAGE * 2) as usize
+            || self.size_less_than(page_size)
+        {
+            return (self.clone(), None);
+        }
+
+        let clamp = |n, min, max| -> f64 {
+            if n < min {
+                min
+            } else if n > max {
+                max
+            } else {
+                n
+            }
+        };
+
+        // Calculate fill threshold.
+        let fill_percent = clamp(
+            self.bucket().unwrap().fill_percent,
+            MIN_FILL_PERCENT,
+            MAX_FILL_PERCENT,
+        );
+
+        let threshold = (page_size as f64 * fill_percent) as usize;
+
+        // Determine split position.
+        let split_index = self.split_index(threshold); // Assuming split_index returns Option
+
+        // Create a new node.
+        let mut next = Node(Rc::new(RawNode {
+            bucket: todo!(),
+            is_leaf: todo!(),
+            parent: todo!(),
+            inodes: todo!(),
+            unbalanced: todo!(),
+            spilled: todo!(),
+            key: todo!(),
+            pgid: todo!(),
+            children: todo!(),
+        }));
+
+        // // Ensure parent exists.
+        // if self.parent.is_none() {
+        //     self.parent = Some(Box::new(Node {
+        //         bucket: self.bucket,
+        //         children: vec![self],
+        //         // ...other fields
+        //     }));
+        // }
+
+        // Add new node to parent.
+        self.parent()
+            .as_mut()
+            .unwrap()
+            .0
+            .children
+            .borrow()
+            .push(next);
+
+        // Split inodes.
+        // next.inodes = self.inodes.split_off(split_index);
+
+        // Update statistics.
+        // self.bucket().tx.stats.inc_split(1);
+
+        (self.clone(), Some(&mut next)) // Return both nodes as an Option
+    }
+
+     fn split_index(&self, threshold: usize) -> (usize, usize) {
+        let mut sz = common::page::PAGE_HEADER_SIZE;
+        let mut index = 0;
+
+        // Loop until minimum keys remain for the second page.
+        for i in 0..self.0.inodes.borrow().len() - common::page::MIN_KEYS_PER_PAGE as usize {
+            // Calculate element size.
+            let elsize = self.page_element_size()
+                + self.0.inodes.borrow().inodes[i].key().len()
+                + self.0.inodes.borrow().inodes[i].value().len();
+
+            // Check for split condition.
+            if i >= common::page::MIN_KEYS_PER_PAGE as usize && sz + elsize > threshold {
+                break;
+            }
+
+            // Update size and index.
+            sz += elsize;
+            index = i;
+        }
+
+        (index, sz)
+    }
+
+    // removes a node from the list of in-memory children.
+    // This does not affect the inodes.
+     fn remove_child(&mut self, target: &Node) {
+        //可能有性能问题
+        self.0.children.borrow_mut().retain(target);
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct Nodes {
-     inner: Vec<RawNode>,
+    inner: Vec<Node>,
+}
+
+impl Nodes {
+    fn retain(&mut self, target: &Node) {
+        self.inner.retain(|child| !(ptr::eq(child, target)));
+    }
+
+    fn push(&mut self, value: Node) {
+        self.inner.push(value);
+    }
 }

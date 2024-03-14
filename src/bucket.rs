@@ -15,8 +15,8 @@ const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
 
 const BUCKET_HEADER_SIZE: usize = mem::size_of::<Bucket>();
 
-const MIN_FILL_PERCENT: f64 = 0.1;
-const MAX_FILL_PERCENT: f64 = 1.0;
+pub(crate)const MIN_FILL_PERCENT: f64 = 0.1;
+pub(crate)const MAX_FILL_PERCENT: f64 = 1.0;
 
 /// DefaultFillPercent is the percentage that split pages are filled.
 /// This value can be changed by setting Bucket.FillPercent.
@@ -26,7 +26,7 @@ const DEFAULT_FILL_PERCENT: f64 = 0.5;
 
 #[derive(Debug)]
 pub struct Bucket {
-    pub(crate) local_bucket: InBucket,
+    pub(crate) bucket: InBucket,
     // the associated transaction, WeakTx
     pub(crate) tx: WeakTx,
     // subbucket cache

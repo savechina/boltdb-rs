@@ -1,6 +1,6 @@
 [package]
 name = "boltdb-rs"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["魏仁言 <weirenyan@yahoo.com>"]
 edition = "2021"
 
