@@ -62,3 +62,10 @@ impl fmt::Display for InBucket {
         write!(f, "<pgid={},seq={}>", self.root, self.sequence)
     }
 }
+
+/// 实现 From<InBucket> for String
+impl From<InBucket> for String {
+    fn from(bucket: InBucket) -> String {
+        format!("<pgid={},seq={}>", bucket.root, bucket.sequence)
+    }
+}
