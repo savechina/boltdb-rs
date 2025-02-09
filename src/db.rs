@@ -1,12 +1,19 @@
-use std::{fs::File, sync::{Arc, Mutex, RwLock, Weak}, time::Duration};
+use std::{
+    fs::File,
+    sync::{Arc, Mutex, RwLock, Weak},
+    time::Duration,
+};
 
-use crate::{common::{self, meta::Meta}, tx::Tx};
-use  crate::errors::Result;
+use crate::errors::Result;
+use crate::{
+    common::{self, meta::Meta},
+    tx::Tx,
+};
+
 struct freelist;
 struct batch;
 
 struct Stats;
-
 
 // FreelistType enum (replace with actual variants)
 enum FreelistType {
@@ -14,10 +21,7 @@ enum FreelistType {
     HashMap,
 }
 
-
-
 pub(crate) struct RawDB {
-
     stats: Arc<Mutex<Stats>>, // Thread-safe access to statistics
 
     // Flags with explicit defaults
@@ -36,11 +40,10 @@ pub(crate) struct RawDB {
     mlock: bool,
 
     // logger: Option<Logger>, // Optional logger
-
     path: String,
     file: Option<Arc<Mutex<File>>>, // Thread-safe file handle
-    dataref: Option<Vec<u8>>, // Optional mmap'ed data (read-only)
-    data: Option<Box<[u8]>>, // Optional data pointer (writeable)
+    dataref: Option<Vec<u8>>,       // Optional mmap'ed data (read-only)
+    data: Option<Box<[u8]>>,        // Optional data pointer (writeable)
     datasz: usize,
 
     meta0: Option<Arc<Mutex<Meta>>>, // Thread-safe meta page 0
@@ -50,17 +53,17 @@ pub(crate) struct RawDB {
 
     opened: bool,
     rwtx: Option<Arc<Mutex<Tx>>>, // Read-write transaction (writer)
-    txs: Vec<Arc<Mutex<Tx>>>, // Read-only transactions
+    txs: Vec<Arc<Mutex<Tx>>>,     // Read-only transactions
 
     freelist: Option<Arc<Mutex<freelist>>>, // Thread-safe freelist access
-    freelist_load: Mutex<bool>, // Flag to track freelist loading
+    freelist_load: Mutex<bool>,             // Flag to track freelist loading
 
     page_pool: Mutex<Vec<Box<[u8]>>>, // Pool of allocated pages
 
     batch_mu: Mutex<Option<batch>>, // Mutex for batch operations
-    rwlock: Mutex<()>, // Mutex for single writer access
+    rwlock: Mutex<()>,              // Mutex for single writer access
 
-    metalock: Mutex<()>, // Mutex for meta page access
+    metalock: Mutex<()>,  // Mutex for meta page access
     mmaplock: RwLock<()>, // RWLock for mmap access during remapping
 
     statlock: RwLock<()>, // RWLock for stats access
@@ -68,13 +71,11 @@ pub(crate) struct RawDB {
     ops: Ops, // Operations struct for file access
 
     read_only: bool, // Read-only mode flag
-
 }
 
 struct Ops {
     write_at: fn(&[u8], i64) -> Result<usize>,
 }
-
 
 #[derive(Clone)]
 pub struct DB(pub(crate) Arc<RawDB>);

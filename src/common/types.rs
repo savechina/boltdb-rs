@@ -1,10 +1,10 @@
 //!
 //!  Bolt default type declare
 //!
+use crate::common::page::PgId;
 use once_cell::sync::Lazy;
 use page_size;
 use std::time::Duration;
-use crate::common::page::PgId;
 
 // 最大 mmap 步长为 1GB
 // MaxMmapStep is the largest step that can be taken when remapping the mmap.
@@ -46,7 +46,7 @@ pub(crate) static DEFAULT_PAGE_SIZE: Lazy<usize> = Lazy::new(|| page_size::get()
 
 // 内部事务标识符
 // Txid represents the internal transaction identifier.
-pub(crate) type Txid = u64;
+pub(crate) type TxId = u64;
 
 //Byte 字节类型
 pub type Byte = u8;

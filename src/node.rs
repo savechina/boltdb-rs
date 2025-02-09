@@ -1,11 +1,11 @@
 use crate::bucket::{self, Bucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
-use crate::common;
 use crate::common::inode::{Inode, Inodes, Key};
-use crate::common::page::{Page, PageFlags};
+use crate::common::page::{Page, PageFlags, MIN_KEYS_PER_PAGE};
 use crate::common::page::{
     PgId, BRANCH_PAGE_ELEMENT_SIZE, LEAF_PAGE_ELEMENT_SIZE, PAGE_HEADER_SIZE,
 };
 use crate::common::types::Byte;
+use crate::common::{self, page};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::io::Read;
@@ -30,7 +30,7 @@ pub(crate) struct RawNode {
     pgid: RefCell<PgId>,
     parent: RefCell<WeakNode>, // Use Option<NonNull<T>> for optional non-null pointers
     children: RefCell<Nodes>,  // Assuming nodes is already defined
-    inodes: RefCell<Inodes>,
+    pub(crate) inodes: RefCell<Inodes>,
 }
 
 impl RawNode {
@@ -423,10 +423,12 @@ impl Node {
         // Remove debug-only code (n.dump())
     }
 
-   fn split(&mut self, page_size: usize) -> Vec<Node> {
+    // split breaks up a node into multiple smaller nodes, if appropriate.
+    // This should only be called from the spill() function.
+    fn split(&mut self, page_size: usize) -> Vec<Node> {
         let mut nodes = Vec::new();
 
-        let mut node = self;
+        let mut node = self.clone();
         loop {
             // Split node into two.
             let (a, b) = node.split_two(page_size);
@@ -444,22 +446,26 @@ impl Node {
         nodes
     }
 
-     fn split_two(&mut self, page_size: usize) -> (Node, Option<&mut Node>) {
-        // Ignore the split if conditions aren't met.
-        if self.0.inodes.borrow().len() <= (common::page::MIN_KEYS_PER_PAGE * 2) as usize
+    // splitTwo breaks up a node into two smaller nodes, if appropriate.
+    // This should only be called from the split() function.
+    fn split_two(&mut self, page_size: usize) -> (Node, Option<Node>) {
+        // Ignore the split if the page doesn't have at least enough nodes for
+        // two pages or if the nodes can fit in a single page.
+        if self.0.inodes.borrow().len() <= (MIN_KEYS_PER_PAGE * 2) as usize
             || self.size_less_than(page_size)
         {
             return (self.clone(), None);
         }
 
+        // Determine the threshold before starting a new node.
         let clamp = |n, min, max| -> f64 {
             if n < min {
-                min
+                return min;
             } else if n > max {
-                max
-            } else {
-                n
+                return max;
             }
+
+            return n;
         };
 
         // Calculate fill threshold.
@@ -471,62 +477,59 @@ impl Node {
 
         let threshold = (page_size as f64 * fill_percent) as usize;
 
-        // Determine split position.
-        let split_index = self.split_index(threshold); // Assuming split_index returns Option
+        // Determine split position and sizes of the two pages.
+        let split_index = self.split_index(threshold).0; // Assuming split_index returns Option
 
+        // Split node into two separate nodes.
+        // If there's no parent then we'll need to create one.
+
+        if self.parent().is_none() {
+            let mut v = Vec::new();
+            v.push(self.clone());
+
+            let parent = NodeBuilder::new(self.0.bucket).children(v).build();
+
+            *self.0.parent.borrow_mut() = WeakNode::from(&parent);
+        }
+
+        // Create a new node and add it to the parent.
         // Create a new node.
-        let mut next = Node(Rc::new(RawNode {
-            bucket: todo!(),
-            is_leaf: todo!(),
-            parent: todo!(),
-            inodes: todo!(),
-            unbalanced: todo!(),
-            spilled: todo!(),
-            key: todo!(),
-            pgid: todo!(),
-            children: todo!(),
-        }));
 
-        // // Ensure parent exists.
-        // if self.parent.is_none() {
-        //     self.parent = Some(Box::new(Node {
-        //         bucket: self.bucket,
-        //         children: vec![self],
-        //         // ...other fields
-        //     }));
-        // }
+        let next = NodeBuilder::new(self.0.bucket)
+            .is_leaf(self.is_leaf())
+            .build();
 
         // Add new node to parent.
-        self.parent()
-            .as_mut()
-            .unwrap()
-            .0
-            .children
-            .borrow()
-            .push(next);
+        // todo add to parent's children
+        // self.parent()
+        // .unwrap()
+        // .0
+        // .children
+        // .borrow_mut()
+        // .push(next);
 
-        // Split inodes.
-        // next.inodes = self.inodes.split_off(split_index);
+        // Split inodes across two nodes. split off modify origin node's inodes at index
+        *next.0.inodes.borrow_mut() = self.0.inodes.borrow_mut().split_off(split_index);
 
-        // Update statistics.
+        // Update the statistics.
         // self.bucket().tx.stats.inc_split(1);
 
-        (self.clone(), Some(&mut next)) // Return both nodes as an Option
+        (self.clone(), Some(next)) // Return both nodes as an Option
     }
 
-     fn split_index(&self, threshold: usize) -> (usize, usize) {
-        let mut sz = common::page::PAGE_HEADER_SIZE;
+    fn split_index(&self, threshold: usize) -> (usize, usize) {
+        let mut sz = page::PAGE_HEADER_SIZE;
         let mut index = 0;
 
         // Loop until minimum keys remain for the second page.
-        for i in 0..self.0.inodes.borrow().len() - common::page::MIN_KEYS_PER_PAGE as usize {
+        for i in 0..self.0.inodes.borrow().len() - MIN_KEYS_PER_PAGE as usize {
             // Calculate element size.
             let elsize = self.page_element_size()
                 + self.0.inodes.borrow().inodes[i].key().len()
                 + self.0.inodes.borrow().inodes[i].value().len();
 
             // Check for split condition.
-            if i >= common::page::MIN_KEYS_PER_PAGE as usize && sz + elsize > threshold {
+            if i >= MIN_KEYS_PER_PAGE as usize && sz + elsize > threshold {
                 break;
             }
 
@@ -540,9 +543,63 @@ impl Node {
 
     // removes a node from the list of in-memory children.
     // This does not affect the inodes.
-     fn remove_child(&mut self, target: &Node) {
+    fn remove_child(&mut self, target: &Node) {
         //可能有性能问题
         self.0.children.borrow_mut().retain(target);
+    }
+}
+
+pub(crate) struct NodeBuilder {
+    bucket: Option<*const Bucket>,
+    is_leaf: bool,
+    pg_id: PgId,
+    parent: WeakNode,
+    children: Nodes,
+}
+
+impl NodeBuilder {
+    pub(crate) fn new(bucket: *const Bucket) -> Self {
+        NodeBuilder {
+            bucket: Some(bucket),
+            is_leaf: false,
+            pg_id: 0,
+            parent: Default::default(),
+            children: Nodes { inner: vec![] },
+        }
+    }
+
+    pub(crate) fn is_leaf(mut self, value: bool) -> Self {
+        self.is_leaf = value;
+        self
+    }
+
+    pub(crate) fn parent(mut self, value: WeakNode) -> Self {
+        self.parent = value;
+        self
+    }
+
+    pub(crate) fn children(mut self, value: Vec<Node>) -> Self {
+        self.children = Nodes { inner: value };
+        self
+    }
+
+    fn bucket(mut self, value: *const Bucket) -> Self {
+        self.bucket = Some(value);
+        self
+    }
+
+    pub(crate) fn build(self) -> Node {
+        Node(Rc::new(RawNode {
+            bucket: self.bucket.unwrap(),
+            is_leaf: AtomicBool::new(self.is_leaf),
+            spilled: AtomicBool::new(false),
+            unbalanced: AtomicBool::new(false),
+            key: RefCell::new(vec![]),
+            pgid: RefCell::new(self.pg_id),
+            parent: RefCell::new(self.parent),
+            children: RefCell::new(self.children),
+            inodes: RefCell::new(Inodes::default()),
+        }))
     }
 }
 
@@ -558,5 +615,11 @@ impl Nodes {
 
     fn push(&mut self, value: Node) {
         self.inner.push(value);
+    }
+
+    fn split_off(&mut self, index: usize) -> Self {
+        let other = self.inner.split_off(index);
+
+        Self { inner: other }
     }
 }

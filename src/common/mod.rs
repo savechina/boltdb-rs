@@ -11,9 +11,10 @@ pub(crate) mod types;
 use std::mem::align_of;
 use std::ptr::{self, NonNull};
 
-use self::bucket::InBucket;
-use self::meta::Meta;
-use self::page::{Page, PAGE_HEADER_SIZE};
+pub(crate) use self::bucket::InBucket;
+pub(crate) use self::meta::Meta;
+pub(crate) use self::page::{Page, PAGE_HEADER_SIZE};
+pub(crate) use self::types::TxId;
 
 // Converts a raw pointer to a pointer offset by a specified amount.
 pub unsafe fn unsafe_add<T>(base: *mut T, offset: usize) -> *mut T {
@@ -45,8 +46,6 @@ pub(crate) unsafe fn load_bucket(buf: &[u8]) -> Option<&InBucket> {
 
     Some(unsafe { &*(slice.as_ptr() as *const InBucket) })
 }
-
-
 
 // LoadPage converts a byte slice to a Page reference.
 pub(crate) unsafe fn load_page(buf: &[u8]) -> &Page {

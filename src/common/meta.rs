@@ -1,6 +1,6 @@
 use crate::common::bucket::InBucket;
 use crate::common::page::PgId;
-use crate::common::types::{Txid, MAGIC, VERSION};
+use crate::common::types::{TxId, MAGIC, VERSION};
 use crate::errors::BoltError;
 use crate::errors::Result;
 use fnv::FnvHasher;
@@ -35,7 +35,7 @@ pub(crate) struct Meta {
     /// pg_id high watermark
     pgid: PgId,
     /// transaction id
-    txid: Txid,
+    txid: TxId,
     /// meta check_sum
     checksum: u64,
 }
@@ -138,7 +138,7 @@ impl Meta {
         self.pgid
     }
 
-    pub(crate) fn txid(&self) -> Txid {
+    pub(crate) fn txid(&self) -> TxId {
         self.txid
     }
 
@@ -175,7 +175,7 @@ impl Meta {
         self.pgid = id;
     }
 
-    pub(crate) fn set_txid(&mut self, id: Txid) {
+    pub(crate) fn set_txid(&mut self, id: TxId) {
         self.txid = id;
     }
 

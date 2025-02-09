@@ -42,11 +42,15 @@ extern crate page_size;
 
 mod bucket;
 mod common;
-pub mod db;
 mod errors;
+mod freelist;
 mod node;
 mod os;
-pub mod tx;
+
+//Public modules
+mod cursor;
+mod db;
+mod tx;
 
 #[cfg(test)]
 mod tests {

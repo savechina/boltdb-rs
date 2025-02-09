@@ -111,6 +111,12 @@ impl Inodes {
     pub(crate) fn remove(&mut self, index: usize) {
         self.inodes.remove(index);
     }
+    #[inline]
+    pub(crate) fn split_off(&mut self, index: usize) -> Self {
+        let other = self.inodes.split_off(index);
+
+        Self { inodes: other }
+    }
 
     #[inline]
     pub(crate) fn iter(&self) -> Iter<'_, Inode> {
@@ -165,7 +171,6 @@ pub(crate) fn read_inode_from_page(page: &Page) -> Inodes {
     }
 
     Inodes { inodes: inodes }
-
 }
 
 // Writes the items onto one or more pages.

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::bucket::Bucket;
@@ -43,6 +43,11 @@ pub struct RawTx {
 }
 
 pub struct Tx(Arc<RawTx>);
+impl Tx {
+    pub(crate) fn writable(&self) -> bool {
+        self.0.writable.load(Ordering::Relaxed)
+    }
+}
 
 unsafe impl Sync for Tx {}
 
