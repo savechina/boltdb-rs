@@ -28,6 +28,8 @@ impl<'a> Cursor<'a> {
 }
 
 // elemRef represents a reference to an element on a given page/node.
+// This is used to track the current position of the cursor during iteration.
+#[derive(Debug)]
 struct ElemRef<'a> {
     page: Option<&'a Page>, // Option for handling potential nil pages
     node: Option<&'a Node>, // Option for handling potential nil nodes
@@ -52,5 +54,26 @@ impl<'a> ElemRef<'a> {
 
     fn count(&self) -> usize {
         self.node.map_or(0, |n| n.0.inodes.borrow().len()) // Use map_or for optional counting
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::common::page::PageFlags;
+
+    use super::*;
+    #[test]
+    fn test_elem_ref() {
+        // Create a new page with branch page flags
+        let branch_page = Page::new(0, PageFlags::BRANCH_PAGE, 0, 0);
+
+        // Create a new element reference with the branch page
+        let mut elem = ElemRef {
+            page: Some(&branch_page),
+            node: None,
+            index: 0,
+        };
+
+        dbg!(&elem);
     }
 }

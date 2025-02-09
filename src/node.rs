@@ -20,6 +20,8 @@ use crate::errors::Result;
 // Assuming `Bucket`, `common::Pgid`, `common::Inodes`, and `nodes` are defined elsewhere
 
 #[derive(Debug)]
+#[repr(C)]
+/// A raw node in the B-Tree. This struct represents a page that can be either a branch or a leaf.
 // Struct representing an in-memory, deserialized page
 pub(crate) struct RawNode {
     bucket: *const Bucket, // Use Option<NonNull<T>> for optional non-null pointers
@@ -621,5 +623,15 @@ impl Nodes {
         let other = self.inner.split_off(index);
 
         Self { inner: other }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_nodes() {
+        let mut nodes = Nodes { inner: vec![] };
+        dbg!(&nodes);
     }
 }
