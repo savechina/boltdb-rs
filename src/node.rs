@@ -631,7 +631,22 @@ mod tests {
     use super::*;
     #[test]
     fn test_nodes() {
-        let mut nodes = Nodes { inner: vec![] };
+        let mut nodes = Nodes {
+            inner: vec![
+                NodeBuilder::new(ptr::null()).build(),
+                NodeBuilder::new(ptr::null()).build(),
+            ],
+        };
         dbg!(&nodes);
+    }
+
+    #[test]
+    fn test_nodes_retain() {
+        let mut nodes = Nodes {
+            inner: vec![
+                NodeBuilder::new(ptr::null()).build(),
+                NodeBuilder::new(ptr::null()).build(),
+            ],
+        };
     }
 }

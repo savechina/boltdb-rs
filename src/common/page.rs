@@ -1057,7 +1057,7 @@ mod tests {
 
         let mut page = Page::from_slice_mut(&mut buf);
 
-        page.set_id(123);
+        page.set_id(4567);
         page.set_flags(PageFlags::LEAF_PAGE);
         page.set_count(len as u16);
         page.set_overflow(0);
