@@ -52,13 +52,18 @@ mod cursor;
 mod db;
 mod tx;
 
+pub use bucket::Bucket;
+pub use db::DB;
+pub use errors::{Error, Result};
+pub use tx::Tx;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn it_works() {
-        println!("{}", errors::BoltError::Checksum);
+        println!("{}", errors::Error::Checksum);
 
         let pid: common::page::PgId = 64;
         assert_eq!(2 + 2, 4);

@@ -5,7 +5,7 @@ use std::io;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
-pub enum BoltError {
+pub enum Error {
     /// ErrConfig
     #[error("invalid Configuration: {0}")]
     Config(String),
@@ -127,21 +127,21 @@ pub enum BoltError {
     DifferentDB,
 }
 
-impl From<io::Error> for BoltError {
+impl From<io::Error> for Error {
     #[inline]
     fn from(e: io::Error) -> Self {
         Self::Io(e.kind().to_string())
     }
 }
 
-impl From<&'static str> for BoltError {
+impl From<&'static str> for Error {
     #[inline]
     fn from(s: &'static str) -> Self {
         Self::Unexpected(s)
     }
 }
 
-pub type Result<T> = std::result::Result<T, BoltError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 // pub(crate) fn is_valid_error(err: &std::io::Error) -> bool {
 //     err.kind() == Uncategorized && err.to_string() == "Success (os error 0)"

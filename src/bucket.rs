@@ -1,7 +1,7 @@
 use crate::common::bucket::InBucket;
 use crate::common::inode::Key;
 use crate::common::page::{OwnedPage, Page, PgId};
-use crate::errors::{BoltError, Result};
+use crate::errors::{Error, Result};
 use crate::node::Node;
 use crate::tx::{self, Tx, WeakTx};
 // use serde::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ impl Bucket {
 
     // Tx returns the tx of the bucket.
     pub(crate) fn tx(&self) -> Result<Tx> {
-        return self.tx.upgrade().ok_or(BoltError::TxClosed);
+        return self.tx.upgrade().ok_or(Error::TxClosed);
     }
 
     // Root returns the root of the bucket.

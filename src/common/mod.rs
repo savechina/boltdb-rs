@@ -13,7 +13,7 @@ use std::ptr::{self, NonNull};
 
 pub(crate) use self::bucket::InBucket;
 pub(crate) use self::meta::Meta;
-pub(crate) use self::page::{Page, PAGE_HEADER_SIZE};
+pub(crate) use self::page::{Page, PgId, PAGE_HEADER_SIZE};
 pub(crate) use self::types::TxId;
 
 // Converts a raw pointer to a pointer offset by a specified amount.

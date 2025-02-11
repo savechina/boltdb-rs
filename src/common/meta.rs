@@ -1,7 +1,7 @@
 use crate::common::bucket::InBucket;
 use crate::common::page::PgId;
 use crate::common::types::{TxId, MAGIC, VERSION};
-use crate::errors::BoltError;
+use crate::errors::Error;
 use crate::errors::Result;
 use fnv::FnvHasher;
 use std::hash::Hasher;
@@ -44,11 +44,11 @@ impl Meta {
     // Validate checks the marker bytes and version of the meta page to ensure it matches this binary.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.magic != MAGIC {
-            return Err(BoltError::Invalid);
+            return Err(Error::Invalid);
         } else if self.version != VERSION as u32 {
-            return Err(BoltError::VersionMismatch);
+            return Err(Error::VersionMismatch);
         } else if self.checksum != 0 && self.checksum != self.sum64() {
-            return Err(BoltError::Checksum);
+            return Err(Error::Checksum);
         }
         Ok(())
     }
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        println!("{}", BoltError::Checksum);
+        println!("{}", Error::Checksum);
         assert_eq!(2 + 2, 4);
     }
 }
