@@ -12,18 +12,107 @@
 use std::cell::RefCell;
 
 use crate::bucket::Bucket;
+use crate::common::page;
 use crate::common::page::Page;
+use crate::common::types::Key;
+use crate::common::types::Value;
 use crate::node::Node;
 
-struct Cursor<'a> {
-    bucket: &'a Bucket, // Reference to the bucket with lifetime bound
-    stack: RefCell<Vec<ElemRef<'a>>>,
+struct Cursor<'tx> {
+    bucket: &'tx Bucket, // Reference to the bucket with lifetime bound
+    stack: RefCell<Vec<ElemRef<'tx>>>,
 }
 
-impl<'a> Cursor<'a> {
+trait CursorApi {
+    fn first(&mut self) -> (Key, Value);
+    fn last(&mut self) -> (Key, Value);
+    fn next(&mut self) -> (Key, Value);
+    fn prev(&mut self) -> (Key, Value);
+    fn seek(&mut self, k: &Key) -> (Key, Value);
+    fn delete(&mut self);
+}
+
+impl<'tx> CursorApi for Cursor<'tx> {
+    fn first(&mut self) -> (Key, Value) {
+        let (key, value, flags) = self.api_first();
+
+        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
+            true => return (key, value),
+            false => (),
+        }
+        todo!()
+    }
+
+    fn last(&mut self) -> (Key, Value) {
+        todo!()
+    }
+
+    fn next(&mut self) -> (Key, Value) {
+        todo!()
+    }
+
+    fn prev(&mut self) -> (Key, Value) {
+        todo!()
+    }
+
+    fn seek(&mut self, k: &Key) -> (Key, Value) {
+        todo!()
+    }
+
+    fn delete(&mut self) {
+        todo!()
+    }
+}
+
+impl<'tx> Cursor<'tx> {
     // Bucket returns the bucket that this cursor was created from.
-    pub fn bucket(&self) -> &'a Bucket {
+    pub fn bucket(&self) -> &'tx Bucket {
         self.bucket
+    }
+
+    fn api_first(&self) -> (Vec<u8>, Vec<u8>, u32) {
+        // Clear the stack
+        self.stack.borrow_mut().clear();
+
+        // Get the root page and node
+        let (p, n) = self.bucket.page_node(self.bucket.root_page());
+        self.stack.borrow_mut().push(ElemRef {
+            page: Some(p),
+            node: Some(n),
+            index: 0,
+        });
+
+        // Go to the first element on the stack
+        self.go_to_first_element_on_the_stack();
+
+        // If we land on an empty page then move to the next value.
+        // https://github.com/boltdb/bolt/issues/450
+        if self.stack.borrow().last().unwrap().count() == 0 {
+            self.next();
+        }
+
+        let (k, v, flags) = self.key_value();
+        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
+            true => return (k, vec![], flags),
+            false => (),
+        }
+        (k, v, flags)
+    }
+
+    fn next(&self) -> (Vec<u8>, Vec<u8>, u32) {
+        todo!()
+    }
+
+    fn last(&self) {
+        todo!()
+    }
+
+    fn go_to_first_element_on_the_stack(&self) -> () {
+        todo!()
+    }
+
+    fn key_value(&self) -> (Vec<u8>, Vec<u8>, u32) {
+        todo!()
     }
 }
 
@@ -59,7 +148,7 @@ impl<'a> ElemRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::page::PageFlags;
+    use crate::common::{page::PageFlags, PgId};
 
     use super::*;
     #[test]

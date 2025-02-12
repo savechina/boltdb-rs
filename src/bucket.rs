@@ -68,6 +68,14 @@ impl Bucket {
     pub(crate) fn writeable(&self) -> bool {
         self.tx().unwrap().writable()
     }
+
+    pub(crate) fn page_node(&self, root_page: PgId) -> (&Page, &Node) {
+        todo!()
+    }
+
+    pub(crate) fn root_page(&self) -> PgId {
+        return self.bucket.root_page();
+    }
 }
 
 // BucketStats records statistics about resources used by a bucket.

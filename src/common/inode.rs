@@ -6,11 +6,7 @@ use std::vec::IntoIter;
 use crate::common::page::{BranchPageElement, LeafPageElement, Page, PgId};
 use crate::common::types::Byte;
 
-//Key 字节数组
-pub(crate) type Key = Vec<Byte>;
-
-//Value 字节数组
-pub(crate) type Value = Vec<Byte>;
+use super::types::{Key, Value};
 
 /// Inode 结构体
 /// Inode represents an internal node inside of a node.

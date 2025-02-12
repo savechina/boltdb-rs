@@ -51,6 +51,12 @@ pub(crate) type TxId = u64;
 //Byte 字节类型
 pub type Byte = u8;
 
+//Key 字节数组
+pub(crate) type Key = Vec<Byte>;
+
+//Value 字节数组
+pub(crate) type Value = Vec<Byte>;
+
 ///
 /// 单元测试
 /// #[cfg(test)]
