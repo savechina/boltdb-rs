@@ -51,6 +51,8 @@ pub(crate) type TxId = u64;
 //Byte 字节类型
 pub type Byte = u8;
 
+pub type Bytes = [u8];
+
 //Key 字节数组
 pub(crate) type Key = Vec<Byte>;
 

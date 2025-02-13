@@ -14,6 +14,8 @@ use std::cell::RefCell;
 use crate::bucket::Bucket;
 use crate::common::page;
 use crate::common::page::Page;
+use crate::common::types::Byte;
+use crate::common::types::Bytes;
 use crate::common::types::Key;
 use crate::common::types::Value;
 use crate::node::Node;
@@ -24,38 +26,52 @@ struct Cursor<'tx> {
 }
 
 trait CursorApi {
-    fn first(&mut self) -> (Key, Value);
-    fn last(&mut self) -> (Key, Value);
-    fn next(&mut self) -> (Key, Value);
-    fn prev(&mut self) -> (Key, Value);
-    fn seek(&mut self, k: &Key) -> (Key, Value);
+    fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    // fn first(&mut self) -> (Key, Value);
+    fn last(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn next(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn prev(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn seek(&mut self, seek: &Bytes) -> Option<(&Bytes, Option<&Bytes>)>;
     fn delete(&mut self);
 }
 
 impl<'tx> CursorApi for Cursor<'tx> {
-    fn first(&mut self) -> (Key, Value) {
-        let (key, value, flags) = self.api_first();
+    fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)> {
+        let (key, value, flags) = self.raw_first();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return (key, value),
-            false => (),
+            true => return Some((key, Some(value))),
+            false => return Some((key, None)),
         }
+    }
+
+    fn last(&mut self) -> Option<(&[u8], Option<&[u8]>)> {
+        self.raw_last();
+
         todo!()
     }
 
-    fn last(&mut self) -> (Key, Value) {
-        todo!()
+    fn next(&mut self) -> Option<(&[u8], Option<&[u8]>)> {
+        let (key, value, flags) = self.raw_next();
+
+        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
+            true => return Some((key, Some(value))),
+            false => return Some((key, None)),
+        }
     }
 
-    fn next(&mut self) -> (Key, Value) {
-        todo!()
+    fn prev(&mut self) -> Option<(&[u8], Option<&[u8]>)> {
+        let (key, value, flags) = self.raw_prev();
+
+        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
+            true => return Some((key, Some(value))),
+            false => return Some((key, None)),
+        }
     }
 
-    fn prev(&mut self) -> (Key, Value) {
-        todo!()
-    }
+    fn seek(&mut self, k: &[u8]) -> Option<(&[u8], Option<&[u8]>)> {
+        self.raw_seek();
 
-    fn seek(&mut self, k: &Key) -> (Key, Value) {
         todo!()
     }
 
@@ -70,7 +86,7 @@ impl<'tx> Cursor<'tx> {
         self.bucket
     }
 
-    fn api_first(&self) -> (Vec<u8>, Vec<u8>, u32) {
+    fn raw_first(&self) -> (&Bytes, &Bytes, u32) {
         // Clear the stack
         self.stack.borrow_mut().clear();
 
@@ -88,22 +104,32 @@ impl<'tx> Cursor<'tx> {
         // If we land on an empty page then move to the next value.
         // https://github.com/boltdb/bolt/issues/450
         if self.stack.borrow().last().unwrap().count() == 0 {
-            self.next();
+            self.raw_next();
         }
 
         let (k, v, flags) = self.key_value();
+
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return (k, vec![], flags),
+            true => return (k, &[], flags),
             false => (),
         }
+
         (k, v, flags)
     }
 
-    fn next(&self) -> (Vec<u8>, Vec<u8>, u32) {
+    fn raw_next(&self) -> (&Bytes, &Bytes, u32) {
         todo!()
     }
 
-    fn last(&self) {
+    fn raw_prev(&self) -> (&Bytes, &Bytes, u32) {
+        todo!()
+    }
+
+    fn raw_last(&self) {
+        todo!()
+    }
+
+    fn raw_seek(&self) {
         todo!()
     }
 
@@ -111,9 +137,17 @@ impl<'tx> Cursor<'tx> {
         todo!()
     }
 
-    fn key_value(&self) -> (Vec<u8>, Vec<u8>, u32) {
+    fn key_value(&self) -> (&Bytes, &Bytes, u32) {
         todo!()
     }
+}
+
+struct CursorIter<'tx> {
+    cursor: Cursor<'tx>,
+}
+
+trait CursorIterApi {
+    fn next(&mut self) -> Option<(Key, Option<Value>)>;
 }
 
 // elemRef represents a reference to an element on a given page/node.

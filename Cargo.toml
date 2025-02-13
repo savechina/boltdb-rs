@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 bitflags = "2.4.2"
+bytes = "1.10.0"
 fnv = "1.0.7"
 log = "0.4.20"
 memmap2 = "0.9.5"
