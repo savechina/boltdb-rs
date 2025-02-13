@@ -18,6 +18,7 @@ use crate::common::types::Byte;
 use crate::common::types::Bytes;
 use crate::common::types::Key;
 use crate::common::types::Value;
+use crate::common::PgId;
 use crate::node::Node;
 
 struct Cursor<'tx> {
@@ -36,7 +37,7 @@ trait CursorApi {
 }
 
 impl<'tx> CursorApi for Cursor<'tx> {
-    fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)> {
+    fn first(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
         let (key, value, flags) = self.raw_first();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
@@ -45,13 +46,13 @@ impl<'tx> CursorApi for Cursor<'tx> {
         }
     }
 
-    fn last(&mut self) -> Option<(&[u8], Option<&[u8]>)> {
+    fn last(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
         self.raw_last();
 
         todo!()
     }
 
-    fn next(&mut self) -> Option<(&[u8], Option<&[u8]>)> {
+    fn next(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
         let (key, value, flags) = self.raw_next();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
@@ -60,7 +61,7 @@ impl<'tx> CursorApi for Cursor<'tx> {
         }
     }
 
-    fn prev(&mut self) -> Option<(&[u8], Option<&[u8]>)> {
+    fn prev(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
         let (key, value, flags) = self.raw_prev();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
@@ -69,8 +70,8 @@ impl<'tx> CursorApi for Cursor<'tx> {
         }
     }
 
-    fn seek(&mut self, k: &[u8]) -> Option<(&[u8], Option<&[u8]>)> {
-        self.raw_seek();
+    fn seek(&mut self, k: &[u8]) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
+        self.raw_seek(k);
 
         todo!()
     }
@@ -86,7 +87,7 @@ impl<'tx> Cursor<'tx> {
         self.bucket
     }
 
-    fn raw_first(&self) -> (&Bytes, &Bytes, u32) {
+    fn raw_first(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
         // Clear the stack
         self.stack.borrow_mut().clear();
 
@@ -117,11 +118,11 @@ impl<'tx> Cursor<'tx> {
         (k, v, flags)
     }
 
-    fn raw_next(&self) -> (&Bytes, &Bytes, u32) {
+    fn raw_next(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
         todo!()
     }
 
-    fn raw_prev(&self) -> (&Bytes, &Bytes, u32) {
+    fn raw_prev(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
         todo!()
     }
 
@@ -129,7 +130,7 @@ impl<'tx> Cursor<'tx> {
         todo!()
     }
 
-    fn raw_seek(&self) {
+    fn raw_seek(&mut self, k: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32) {
         todo!()
     }
 
@@ -137,7 +138,11 @@ impl<'tx> Cursor<'tx> {
         todo!()
     }
 
-    fn key_value(&self) -> (&Bytes, &Bytes, u32) {
+    fn search(&mut self, pgId: PgId) -> () {
+        todo!()
+    }
+
+    fn key_value(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
         todo!()
     }
 }

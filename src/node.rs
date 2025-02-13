@@ -1,10 +1,11 @@
 use crate::bucket::{self, Bucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
-use crate::common::inode::{Inode, Inodes, Key};
+use crate::common::inode::Inodes;
 use crate::common::page::{Page, PageFlags, MIN_KEYS_PER_PAGE};
 use crate::common::page::{
     PgId, BRANCH_PAGE_ELEMENT_SIZE, LEAF_PAGE_ELEMENT_SIZE, PAGE_HEADER_SIZE,
 };
 use crate::common::types::Byte;
+use crate::common::types::Key;
 use crate::common::{self, page};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;

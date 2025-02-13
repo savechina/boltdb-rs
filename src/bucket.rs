@@ -1,9 +1,10 @@
 use crate::common::bucket::InBucket;
-use crate::common::inode::Key;
 use crate::common::page::{OwnedPage, Page, PgId};
+use crate::common::types;
 use crate::errors::{Error, Result};
 use crate::node::Node;
 use crate::tx::{self, Tx, WeakTx};
+use types::Key;
 // use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
