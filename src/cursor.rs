@@ -33,7 +33,7 @@ trait CursorApi {
     fn next(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     fn prev(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     fn seek(&mut self, seek: &Bytes) -> Option<(&Bytes, Option<&Bytes>)>;
-    fn delete(&mut self);
+    fn delete(&mut self) -> crate::Result<()>; // Return Result for error handling
 }
 
 impl<'tx> CursorApi for Cursor<'tx> {
@@ -47,9 +47,12 @@ impl<'tx> CursorApi for Cursor<'tx> {
     }
 
     fn last(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        self.raw_last();
+        let (key, value, flags) = self.raw_last();
 
-        todo!()
+        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
+            true => return Some((key, Some(value))),
+            false => return Some((key, None)),
+        }
     }
 
     fn next(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
@@ -71,13 +74,18 @@ impl<'tx> CursorApi for Cursor<'tx> {
     }
 
     fn seek(&mut self, k: &[u8]) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        self.raw_seek(k);
+        let (key, value, flags) = self.raw_seek(k);
 
-        todo!()
+        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
+            true => return Some((key, Some(value))),
+            false => return Some((key, None)),
+        }
     }
 
-    fn delete(&mut self) {
-        todo!()
+    fn delete(&mut self) -> crate::Result<()> {
+        // self.stack.borrow_mut().last().unwrap();
+        // Ok(())
+        return self.raw_delete();
     }
 }
 
@@ -126,7 +134,7 @@ impl<'tx> Cursor<'tx> {
         todo!()
     }
 
-    fn raw_last(&self) {
+    fn raw_last(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
         todo!()
     }
 
@@ -142,7 +150,15 @@ impl<'tx> Cursor<'tx> {
         todo!()
     }
 
+    fn nsearch(&mut self, key: &[u8]) {
+        todo!()
+    }
+
     fn key_value(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
+        todo!()
+    }
+
+    fn raw_delete(&self) -> crate::Result<()> {
         todo!()
     }
 }
