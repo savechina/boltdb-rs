@@ -18,14 +18,16 @@ use crate::db::WeakDB;
 // are using them. A long running read transaction can cause the database to
 // quickly grow.
 
-pub struct RawTx {
+pub trait TxApi<'tx>: Clone + Send + Sync {}
+
+pub struct RawTx<'tx> {
     writable: AtomicBool,
     managed: AtomicBool,
-    db: RwLock<WeakDB>,
+    db: RwLock<WeakDB<'tx>>,
     /// transaction meta
     meta: RwLock<Meta>,
     /// root bucket
-    root: RwLock<Bucket>,
+    root: RwLock<Bucket<'tx>>,
     /// cache page
     pages: RwLock<HashMap<PgId, OwnedPage>>,
     /// transactions stats
@@ -42,34 +44,38 @@ pub struct RawTx {
     write_flag: usize,
 }
 
-pub struct Tx(Arc<RawTx>);
-impl Tx {
+pub struct Tx<'tx>(Arc<RawTx<'tx>>);
+impl<'tx> Tx<'tx> {
     pub(crate) fn writable(&self) -> bool {
         self.0.writable.load(Ordering::Relaxed)
     }
+
+    pub(crate) fn new() -> Self {
+        Self(todo!())
+    }
 }
 
-unsafe impl Sync for Tx {}
+unsafe impl<'tx> Sync for Tx<'tx> {}
 
-unsafe impl Send for Tx {}
+unsafe impl<'tx> Send for Tx<'tx> {}
 
 #[derive(Debug, Clone)]
-pub(crate) struct WeakTx(Weak<RawTx>);
+pub(crate) struct WeakTx<'tx>(Weak<RawTx<'tx>>);
 
-impl WeakTx {
+impl<'tx> WeakTx<'tx> {
     pub(crate) fn new() -> Self {
         Self(Weak::new())
     }
 
-    pub(crate) fn upgrade(&self) -> Option<Tx> {
+    pub(crate) fn upgrade(&self) -> Option<Tx<'tx>> {
         self.0.upgrade().map(Tx)
     }
 
-    pub(crate) fn from(tx: &Tx) -> Self {
+    pub(crate) fn from(tx: &Tx<'tx>) -> Self {
         Self(Arc::downgrade(&tx.0))
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct TxStats {
     // Page statistics.
     // #[deprecated(since = "future version", note = "Use GetPageCount() or IncPageCount() instead")]
@@ -112,4 +118,9 @@ pub struct TxStats {
 
     // #[deprecated(since = "future version", note = "Use GetWriteTime() or IncWriteTime() instead")]
     pub write_time: std::time::Duration, // total time spent writing to disk
+}
+impl TxStats {
+    pub(crate) fn sub(&self, other: &TxStats) -> TxStats {
+        todo!()
+    }
 }

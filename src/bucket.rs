@@ -29,19 +29,19 @@ pub(crate) const DEFAULT_FILL_PERCENT: f64 = 0.5;
 // Bucket represents a collection of key/value pairs inside the database.
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct Bucket {
+pub struct Bucket<'tx> {
     pub(crate) bucket: InBucket,
     // the associated transaction, WeakTx
-    pub(crate) tx: WeakTx,
+    pub(crate) tx: WeakTx<'tx>,
     // subbucket cache
-    pub(crate) buckets: RefCell<HashMap<Key, Bucket>>,
+    pub(crate) buckets: RefCell<HashMap<Key, Bucket<'tx>>>,
     // inline page reference
     pub(crate) page: Option<OwnedPage>,
     // materialized node for the root page
-    pub(crate) root_node: Option<Node>,
+    pub(crate) root_node: Option<Node<'tx>>,
     // node cache
     // TODO: maybe use refHashMap
-    pub(crate) nodes: RefCell<HashMap<PgId, Node>>,
+    pub(crate) nodes: RefCell<HashMap<PgId, Node<'tx>>>,
     // Sets the threshold for filling nodes when they split. By default,
     // the bucket will fill to 50% but it can be useful to increase this
     // amount if you know that your write workloads are mostly append-only.
@@ -50,13 +50,13 @@ pub struct Bucket {
     pub(crate) fill_percent: f64,
 }
 
-impl Bucket {
+impl<'tx> Bucket<'tx> {
     pub(crate) fn node(&self, child_pgid: PgId, from: crate::node::WeakNode) -> Node {
         todo!()
     }
 
     // Tx returns the tx of the bucket.
-    pub(crate) fn tx(&self) -> Result<Tx> {
+    pub(crate) fn tx(&self) -> Result<Tx<'tx>> {
         return self.tx.upgrade().ok_or(Error::TxClosed);
     }
 

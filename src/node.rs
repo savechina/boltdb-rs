@@ -24,56 +24,56 @@ use crate::errors::Result;
 #[repr(C)]
 /// A raw node in the B-Tree. This struct represents a page that can be either a branch or a leaf.
 // Struct representing an in-memory, deserialized page
-pub(crate) struct RawNode {
-    bucket: *const Bucket, // Use Option<NonNull<T>> for optional non-null pointers
+pub(crate) struct RawNode<'tx> {
+    bucket: *const Bucket<'tx>, // Use Option<NonNull<T>> for optional non-null pointers
     is_leaf: AtomicBool,
     unbalanced: AtomicBool,
     spilled: AtomicBool,
     key: RefCell<Key>,
     pgid: RefCell<PgId>,
-    parent: RefCell<WeakNode>, // Use Option<NonNull<T>> for optional non-null pointers
-    children: RefCell<Nodes>,  // Assuming nodes is already defined
+    parent: RefCell<WeakNode<'tx>>, // Use Option<NonNull<T>> for optional non-null pointers
+    children: RefCell<Nodes<'tx>>,  // Assuming nodes is already defined
     pub(crate) inodes: RefCell<Inodes>,
 }
 
-impl RawNode {
+impl<'tx> RawNode<'tx> {
     fn is_leaf(&self) -> bool {
         self.is_leaf.load(Ordering::Acquire)
     }
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct WeakNode(pub(crate) Weak<RawNode>);
+pub(crate) struct WeakNode<'tx>(pub(crate) Weak<RawNode<'tx>>);
 
-impl WeakNode {
+impl<'tx> WeakNode<'tx> {
     // 创建新的弱引用节点
     pub(crate) fn new() -> Self {
         WeakNode::default()
     }
 
     // 升级弱引用到强引用
-    pub(crate) fn upgrade(&self) -> Option<Node> {
+    pub(crate) fn upgrade(&self) -> Option<Node<'tx>> {
         self.0.upgrade().map(Node)
     }
 
-    pub(crate) fn from(tx: &Node) -> Self {
+    pub(crate) fn from(tx: &Node<'tx>) -> Self {
         WeakNode(Rc::downgrade(&tx.0))
     }
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Node(pub(crate) Rc<RawNode>);
+pub(crate) struct Node<'tx>(pub(crate) Rc<RawNode<'tx>>);
 
-impl Node {
+impl<'tx> Node<'tx> {
     // Returns the top-level node this node is attached to.
-    pub(crate) fn root(&self) -> Node {
+    pub(crate) fn root(&self) -> Node<'tx> {
         match self.parent() {
             Some(ref p) => p.root(),
             None => self.clone(),
         }
     }
 
-    fn parent(&self) -> Option<Node> {
+    fn parent(&self) -> Option<Node<'tx>> {
         self.0.parent.borrow().upgrade()
     }
 
@@ -145,7 +145,7 @@ impl Node {
     }
 
     // child_at returns the child node at a given index.
-    pub fn child_at(&self, index: usize) -> Result<Node> {
+    pub fn child_at(&self, index: usize) -> Result<Node<'tx>> {
         if self.is_leaf() {
             panic!("invalid childAt({}) on a leaf node", index);
         }
@@ -173,14 +173,14 @@ impl Node {
         self.0.inodes.borrow().len()
     }
 
-    pub(super) fn bucket<'a, 'b: 'a>(&'a self) -> Option<&'b Bucket> {
+    pub(super) fn bucket<'a, 'b: 'a>(&'a self) -> Option<&'tx Bucket<'tx>> {
         if self.0.bucket.is_null() {
             return None;
         }
         Some(unsafe { &*(self.0.bucket as *const Bucket) })
     }
 
-    pub(super) fn bucket_mut<'a, 'b: 'a>(&'a self) -> Option<&'b mut Bucket> {
+    pub(super) fn bucket_mut<'a, 'b: 'a>(&'a self) -> Option<&'tx mut Bucket<'tx>> {
         if self.0.bucket.is_null() {
             return None;
         }
@@ -188,7 +188,7 @@ impl Node {
     }
 
     // nextSibling returns the next node with the same parent.
-    pub(crate) fn next_sibling(&self) -> Option<Node> {
+    pub(crate) fn next_sibling(&self) -> Option<Node<'tx>> {
         if self.parent().is_none() {
             // No parent, so no sibling
             return None;
@@ -226,7 +226,7 @@ impl Node {
     // }
 
     // prevSibling returns the previous node with the same parent.
-    pub(crate) fn prev_sibling(&self) -> Option<Node> {
+    pub(crate) fn prev_sibling(&self) -> Option<Node<'tx>> {
         if self.parent().is_none() {
             return None;
         }
@@ -428,7 +428,7 @@ impl Node {
 
     // split breaks up a node into multiple smaller nodes, if appropriate.
     // This should only be called from the spill() function.
-    fn split(&mut self, page_size: usize) -> Vec<Node> {
+    fn split(&mut self, page_size: usize) -> Vec<Node<'tx>> {
         let mut nodes = Vec::new();
 
         let mut node = self.clone();
@@ -451,7 +451,7 @@ impl Node {
 
     // splitTwo breaks up a node into two smaller nodes, if appropriate.
     // This should only be called from the split() function.
-    fn split_two(&mut self, page_size: usize) -> (Node, Option<Node>) {
+    fn split_two(&mut self, page_size: usize) -> (Node<'tx>, Option<Node<'tx>>) {
         // Ignore the split if the page doesn't have at least enough nodes for
         // two pages or if the nodes can fit in a single page.
         if self.0.inodes.borrow().len() <= (MIN_KEYS_PER_PAGE * 2) as usize
@@ -546,22 +546,22 @@ impl Node {
 
     // removes a node from the list of in-memory children.
     // This does not affect the inodes.
-    fn remove_child(&mut self, target: &Node) {
+    fn remove_child(&mut self, target: &Node<'tx>) {
         //可能有性能问题
         self.0.children.borrow_mut().retain(target);
     }
 }
 
-pub(crate) struct NodeBuilder {
-    bucket: Option<*const Bucket>,
+pub(crate) struct NodeBuilder<'tx> {
+    bucket: Option<*const Bucket<'tx>>,
     is_leaf: bool,
     pg_id: PgId,
-    parent: WeakNode,
-    children: Nodes,
+    parent: WeakNode<'tx>,
+    children: Nodes<'tx>,
 }
 
-impl NodeBuilder {
-    pub(crate) fn new(bucket: *const Bucket) -> Self {
+impl<'tx> NodeBuilder<'tx> {
+    pub(crate) fn new(bucket: *const Bucket<'tx>) -> Self {
         NodeBuilder {
             bucket: Some(bucket),
             is_leaf: false,
@@ -576,22 +576,22 @@ impl NodeBuilder {
         self
     }
 
-    pub(crate) fn parent(mut self, value: WeakNode) -> Self {
+    pub(crate) fn parent(mut self, value: WeakNode<'tx>) -> Self {
         self.parent = value;
         self
     }
 
-    pub(crate) fn children(mut self, value: Vec<Node>) -> Self {
+    pub(crate) fn children(mut self, value: Vec<Node<'tx>>) -> Self {
         self.children = Nodes { inner: value };
         self
     }
 
-    fn bucket(mut self, value: *const Bucket) -> Self {
+    fn bucket(mut self, value: *const Bucket<'tx>) -> Self {
         self.bucket = Some(value);
         self
     }
 
-    pub(crate) fn build(self) -> Node {
+    pub(crate) fn build(self) -> Node<'tx> {
         Node(Rc::new(RawNode {
             bucket: self.bucket.unwrap(),
             is_leaf: AtomicBool::new(self.is_leaf),
@@ -607,16 +607,16 @@ impl NodeBuilder {
 }
 
 #[derive(Debug)]
-pub(crate) struct Nodes {
-    inner: Vec<Node>,
+pub(crate) struct Nodes<'tx> {
+    inner: Vec<Node<'tx>>,
 }
 
-impl Nodes {
-    fn retain(&mut self, target: &Node) {
+impl<'tx> Nodes<'tx> {
+    fn retain(&mut self, target: &Node<'tx>) {
         self.inner.retain(|child| !(ptr::eq(child, target)));
     }
 
-    fn push(&mut self, value: Node) {
+    fn push(&mut self, value: Node<'tx>) {
         self.inner.push(value);
     }
 

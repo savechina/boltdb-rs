@@ -22,7 +22,7 @@ use crate::common::PgId;
 use crate::node::Node;
 
 struct Cursor<'tx> {
-    bucket: &'tx Bucket, // Reference to the bucket with lifetime bound
+    bucket: &'tx Bucket<'tx>, // Reference to the bucket with lifetime bound
     stack: RefCell<Vec<ElemRef<'tx>>>,
 }
 
@@ -174,10 +174,10 @@ trait CursorIterApi {
 // elemRef represents a reference to an element on a given page/node.
 // This is used to track the current position of the cursor during iteration.
 #[derive(Debug)]
-struct ElemRef<'a> {
-    page: Option<&'a Page>, // Option for handling potential nil pages
-    node: Option<&'a Node>, // Option for handling potential nil nodes
-    index: usize,           // Use usize for memory-related integer
+struct ElemRef<'tx> {
+    page: Option<&'tx Page>,      // Option for handling potential nil pages
+    node: Option<&'tx Node<'tx>>, // Option for handling potential nil nodes
+    index: usize,                 // Use usize for memory-related integer
 }
 
 impl<'a> ElemRef<'a> {
