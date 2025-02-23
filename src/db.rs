@@ -1,17 +1,39 @@
+use std::fmt::{self, Display, Formatter};
 use std::fs::File;
 use std::ptr::NonNull;
+use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 use crate::common::meta::Meta;
 use crate::errors::Result;
+use crate::freelist::Freelist;
 use crate::tx::{Tx, TxApi, TxStats};
 
-// FreelistType enum (replace with actual variants)
+// FreelistType is the type of the freelist backend
+// FreelistType represents the type of freelist used by the database.
+
+// TODO(ahrtr): eventually we should (step by step)
+//  1. default to `FreelistMapType`;
+//  2. remove the `FreelistArrayType`, do not export `FreelistMapType`
+//     and remove field `FreelistType' from both `DB` and `Options`;
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum FreelistType {
+    // FreelistArrayType indicates backend freelist type is array
     Array,
+    // FreelistMapType indicates backend freelist type is hashmap
     HashMap,
 }
+
+impl Display for FreelistType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            FreelistType::Array => write!(f, "array"),
+            FreelistType::HashMap => write!(f, "hashmap"),
+        }
+    }
+}
+
 pub trait DbApi: Clone + Send + Sync
 where
     Self: Sized,
@@ -202,14 +224,119 @@ impl<'tx> WeakDB<'tx> {
     }
 }
 
-pub struct Options;
+// Logger is the logger trait used by bbolt.
+trait Logger {
+    fn log(&self, message: String);
+}
 
-struct Freelist;
+// Options represents the options that can be set when opening a database.
+#[derive(Debug, Clone)]
+pub struct Options {
+    // Timeout is the amount of time to wait to obtain a file lock.
+    // When set to zero it will wait indefinitely.
+    timeout: Duration,
+
+    // Sets the DB.NoGrowSync flag before memory mapping the file.
+    no_grow_sync: bool,
+
+    // Do not sync freelist to disk. This improves the database write performance
+    // under normal operation, but requires a full database re-sync during recovery.
+    no_freelist_sync: bool,
+
+    // PreLoadFreelist sets whether to load the free pages when opening
+    // the db file. Note when opening db in write mode, bbolt will always
+    // load the free pages.
+    pre_load_freelist: bool,
+
+    // FreelistType sets the backend freelist type. There are two options. Array which is simple but endures
+    // dramatic performance degradation if database is large and fragmentation in freelist is common.
+    // The alternative one is using hashmap, it is faster in almost all circumstances
+    // but it doesn't guarantee that it offers the smallest page id available. In normal case it is safe.
+    // The default type is array
+    freelist_type: FreelistType,
+
+    // Open database in read-only mode. Uses flock(..., LOCK_SH |LOCK_NB) to
+    // grab a shared lock (UNIX).
+    read_only: bool,
+
+    // Sets the DB.MmapFlags flag before memory mapping the file.
+    mmap_flags: i32,
+
+    // InitialMmapSize is the initial mmap size of the database
+    // in bytes. Read transactions won't block write transaction
+    // if the InitialMmapSize is large enough to hold database mmap
+    // size. (See DB.Begin for more information)
+    //
+    // If <=0, the initial map size is 0.
+    // If initialMmapSize is smaller than the previous database size,
+    // it takes no effect.
+    initial_mmap_size: u64,
+
+    // PageSize overrides the default OS page size.
+    page_size: usize,
+
+    // NoSync sets the initial value of DB.NoSync. Normally this can just be
+    // set directly on the DB itself when returned from Open(), but this option
+    // is useful in APIs which expose Options but not the underlying DB.
+    no_sync: bool,
+
+    // OpenFile is used to open files. It defaults to os::fs::OpenOptions. This option
+    // is useful for writing hermetic tests.
+    open_file: Option<fn(&str, i32, u32) -> crate::Result<File>>,
+
+    // Mlock locks database file in memory when set to true.
+    // It prevents potential page faults, however
+    // used memory can't be reclaimed. (UNIX only)
+    mlock: bool,
+    // Logger is the logger used for bbolt.
+    // logger: Option<Box<dyn Logger>>,
+}
+
+impl Options {
+    fn to_string(&self) -> String {
+        format!(
+            "{{Timeout: {:?}, NoGrowSync: {}, NoFreelistSync: {}, PreLoadFreelist: {}, FreelistType: {}, ReadOnly: {}, MmapFlags: {:x}, InitialMmapSize: {}, PageSize: {}, NoSync: {}, OpenFile: {:?}, Mlock: {}, }}",
+            self.timeout,
+            self.no_grow_sync,
+            self.no_freelist_sync,
+            self.pre_load_freelist,
+            self.freelist_type,
+            self.read_only,
+            self.mmap_flags,
+            self.initial_mmap_size,
+            self.page_size,
+            self.no_sync,
+            self.open_file.map(|f| f as *const ()),
+            self.mlock,
+            // self.logger.as_ref().map(|l| l as *const dyn Logger)
+        )
+    }
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            timeout: Duration::from_secs(0),
+            no_grow_sync: false,
+            no_freelist_sync: false,
+            pre_load_freelist: false,
+            freelist_type: FreelistType::Array,
+            read_only: false,
+            mmap_flags: 0,
+            initial_mmap_size: 0,
+            page_size: 0,
+            no_sync: false,
+            open_file: None,
+            mlock: false,
+            // logger: None,
+        }
+    }
+}
 
 struct Batch;
 
 // Stats represents statistics about the database.
-#[derive(Default, Clone)]
+#[derive(Default)]
 struct Stats {
     // Put `TxStats` at the first field to ensure it's 64-bit aligned. Note
     // that the first word in an allocated struct can be relied upon to be
@@ -218,14 +345,14 @@ struct Stats {
     tx_stats: TxStats, // global, ongoing stats.
 
     // Freelist stats
-    free_page_n: i32,    // total number of free pages on the freelist
-    pending_page_n: i32, // total number of pending pages on the freelist
-    free_alloc: i32,     // total bytes allocated in free pages
-    freelist_inuse: i32, // total bytes used by the freelist
+    free_page_n: i64,    // total number of free pages on the freelist
+    pending_page_n: i64, // total number of pending pages on the freelist
+    free_alloc: i64,     // total bytes allocated in free pages
+    freelist_inuse: i64, // total bytes used by the freelist
 
     // Transaction stats
-    tx_n: i32,      // total number of started read transactions
-    open_tx_n: i32, // number of currently open read transactions
+    tx_n: i64,      // total number of started read transactions
+    open_tx_n: i64, // number of currently open read transactions
 }
 
 impl Stats {
@@ -240,17 +367,51 @@ impl Stats {
             open_tx_n: 0,
         }
     }
-    pub fn get_tx_stats(&self) -> TxStats {
-        self.tx_stats
+    //getters for stats
+    pub fn get_tx_stats(&self) -> &TxStats {
+        &self.tx_stats
     }
-    pub fn get_free_page_n(&self) -> i32 {
+    pub fn get_free_page_n(&self) -> i64 {
         self.free_page_n
     }
-    pub fn get_pending_page_n(&self) -> i32 {
+    pub fn get_pending_page_n(&self) -> i64 {
         self.pending_page_n
     }
-    pub fn get_free_alloc(&self) -> i32 {
+    pub fn get_free_alloc(&self) -> i64 {
         self.free_alloc
+    }
+
+    pub fn get_freelist_inuse(&self) -> i64 {
+        self.freelist_inuse
+    }
+    pub fn get_tx_n(&self) -> i64 {
+        self.tx_n
+    }
+    pub fn get_open_tx_n(&self) -> i64 {
+        self.open_tx_n
+    }
+
+    // setter for stats
+    pub fn set_tx_stats(&mut self, tx_stats: TxStats) {
+        self.tx_stats = tx_stats;
+    }
+    pub fn set_free_page_n(&mut self, free_page_n: i64) {
+        self.free_page_n = free_page_n;
+    }
+    pub fn set_pending_page_n(&mut self, pending_page_n: i64) {
+        self.pending_page_n = pending_page_n;
+    }
+    pub fn set_free_alloc(&mut self, free_alloc: i64) {
+        self.free_alloc = free_alloc;
+    }
+    pub fn set_freelist_inuse(&mut self, freelist_inuse: i64) {
+        self.freelist_inuse = freelist_inuse;
+    }
+    pub fn set_tx_n(&mut self, tx_n: i64) {
+        self.tx_n = tx_n;
+    }
+    pub fn set_open_tx_n(&mut self, open_tx_n: i64) {
+        self.open_tx_n = open_tx_n;
     }
 
     // Sub calculates and returns the difference between two sets of database stats.
@@ -274,6 +435,21 @@ impl Stats {
         }
     }
 }
+
+impl Clone for Stats {
+    fn clone(&self) -> Self {
+        Stats {
+            tx_stats: self.tx_stats.clone(),
+            free_page_n: self.free_page_n,
+            pending_page_n: self.pending_page_n,
+            free_alloc: self.free_alloc,
+            freelist_inuse: self.freelist_inuse,
+            tx_n: self.tx_n,
+            open_tx_n: self.open_tx_n,
+        }
+    }
+}
+
 struct Info {
     data: NonNull<u8>, // 使用 NonNull<u8> 替换 *const u8
     page_size: usize,
