@@ -2,7 +2,7 @@ use std::fmt::{self, Display, Formatter};
 use std::fs::File;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicI64;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 
 use crate::common::meta::Meta;
@@ -140,52 +140,120 @@ where
     fn info(&self) -> Info;
 }
 
+// DB represents a collection of buckets persisted to a file on disk.
+// All data access is performed through transactions which can be obtained through the DB.
+// All the functions on DB will return a ErrDatabaseNotOpen if accessed before Open() is called.
 pub(crate) struct RawDB<'tx> {
+    // Put `stats` at the first field to ensure it's 64-bit aligned. Note that
+    // the first word in an allocated struct can be relied upon to be 64-bit
+    // aligned. Refer to https://pkg.go.dev/sync/atomic#pkg-note-BUG. Also
+    // refer to discussion in https://github.com/etcd-io/bbolt/issues/577.
     stats: Arc<Mutex<Stats>>, // Thread-safe access to statistics
 
+    // When enabled, the database will perform a Check() after every commit.
+    // A panic is issued if the database is in an inconsistent state. This
+    // flag has a large performance impact so it should only be used for
+    // debugging purposes.
     // Flags with explicit defaults
     strict_mode: bool,
+
+    // Setting the NoSync flag will cause the database to skip fsync()
+    // calls after each commit. This can be useful when bulk loading data
+    // into a database and you can restart the bulk load in the event of
+    // a system failure or database corruption. Do not set this flag for
+    // normal use.
+    //
+    // If the package global IgnoreNoSync constant is true, this value is
+    // ignored.  See the comment on that constant for more details.
+    //
+    // THIS IS UNSAFE. PLEASE USE WITH CAUTION.
     no_sync: bool,
+
+    // When true, skips syncing freelist to disk. This improves the database
+    // write performance under normal operation, but requires a full database
+    // re-sync during recovery.
     no_freelist_sync: bool,
+
+    // FreelistType sets the backend freelist type. There are two options. Array which is simple but endures
+    // dramatic performance degradation if database is large and fragmentation in freelist is common.
+    // The alternative one is using hashmap, it is faster in almost all circumstances
+    // but it doesn't guarantee that it offers the smallest page id available. In normal case it is safe.
+    // The default type is array
     freelist_type: FreelistType,
+
+    // When true, skips the truncate call when growing the database.
+    // Setting this to true is only safe on non-ext3/ext4 systems.
+    // Skipping truncation avoids preallocation of hard drive space and
+    // bypasses a truncate() and fsync() syscall on remapping.
+    //
+    // https://github.com/boltdb/bolt/issues/284
     no_grow_sync: bool,
+
+    // When `true`, bbolt will always load the free pages when opening the DB.
+    // When opening db in write mode, this flag will always automatically
+    // set to `true`.
     pre_load_freelist: bool,
+
+    // If you want to read the entire database fast, you can set MmapFlag to
+    // syscall.MAP_POPULATE on Linux 2.6.23+ for sequential read-ahead.
     mmap_flags: i32,
 
     // Configuration options
+    // MaxBatchSize is the maximum size of a batch. Default value is
+    // copied from DefaultMaxBatchSize in Open.
+    //
+    // If <=0, disables batching.
+    //
+    // Do not change concurrently with calls to Batch.
     max_batch_size: isize,
+
+    // MaxBatchDelay is the maximum delay before a batch starts.
+    // Default value is copied from DefaultMaxBatchDelay in Open.
+    //
+    // If <=0, effectively disables batching.
+    //
+    // Do not change concurrently with calls to Batch.
     max_batch_delay: Duration,
+
+    // AllocSize is the amount of space allocated when the database
+    // needs to create new pages. This is done to amortize the cost
+    // of truncate() and fsync() when growing the data file.
     alloc_size: usize,
+
+    // Mlock locks database file in memory when set to true.
+    // It prevents major page faults, however used memory can't be reclaimed.
+    //
+    // Supported only on Unix via mlock/munlock syscalls.
     mlock: bool,
 
     // logger: Option<Logger>, // Optional logger
     path: String,
     file: Option<Arc<Mutex<File>>>, // Thread-safe file handle
-    dataref: Option<Vec<u8>>,       // Optional mmap'ed data (read-only)
-    data: Option<Box<[u8]>>,        // Optional data pointer (writeable)
-    datasz: usize,
 
+    // `dataref` isn't used at all on Windows, and the golangci-lint
+    // always fails on Windows platform.
+    //nolint
+    dataref: Option<Vec<u8>>,        // mmap'ed readonly, write throws SEGV
+    data: Option<Box<[u8]>>,         // Optional data pointer (writeable)
+    datasz: usize,                   // Current data length
     meta0: Option<Arc<Mutex<Meta>>>, // Thread-safe meta page 0
     meta1: Option<Arc<Mutex<Meta>>>, // Thread-safe meta page 1
-
-    page_size: usize,
-
-    opened: bool,
-    rwtx: Option<Arc<Mutex<Tx<'tx>>>>, // Read-write transaction (writer)
-    txs: Vec<Arc<Mutex<Tx<'tx>>>>,     // Read-only transactions
+    page_size: usize,                // Page size for the database
+    opened: bool,                    // Whether the database is open or not
+    rwtx: Option<Tx<'tx>>,           // Read-write transaction (writer)
+    txs: Vec<Tx<'tx>>,               // Read-only transactions
 
     freelist: Option<Arc<Mutex<Freelist>>>, // Thread-safe freelist access
-    freelist_load: Mutex<bool>,             // Flag to track freelist loading
+    freelist_load: OnceLock<bool>,          // Flag to track freelist loading
 
     page_pool: Mutex<Vec<Box<[u8]>>>, // Pool of allocated pages
 
     batch_mu: Mutex<Option<Batch>>, // Mutex for batch operations
-    rwlock: Mutex<()>,              // Mutex for single writer access
 
-    metalock: Mutex<()>,  // Mutex for meta page access
-    mmaplock: RwLock<()>, // RWLock for mmap access during remapping
-
-    statlock: RwLock<()>, // RWLock for stats access
+    rwlock: Mutex<()>,    // Allows only one writer at a time.
+    metalock: Mutex<()>,  // Protects meta page access.
+    mmaplock: RwLock<()>, // Protects mmap access during remapping.
+    statlock: RwLock<()>, // Protects stats access.
 
     ops: Ops, // Operations struct for file access
 
@@ -196,6 +264,9 @@ struct Ops {
     write_at: fn(&[u8], i64) -> Result<usize>,
 }
 
+// DB represents a collection of buckets persisted to a file on disk.
+// All data access is performed through transactions which can be obtained through the DB.
+// All the functions on DB will return a ErrDatabaseNotOpen if accessed before Open() is called.
 #[derive(Clone)]
 pub struct DB<'tx>(pub(crate) Arc<RawDB<'tx>>);
 
@@ -368,26 +439,26 @@ impl Stats {
         }
     }
     //getters for stats
-    pub fn get_tx_stats(&self) -> &TxStats {
+    pub fn tx_stats(&self) -> &TxStats {
         &self.tx_stats
     }
-    pub fn get_free_page_n(&self) -> i64 {
+    pub fn free_page_n(&self) -> i64 {
         self.free_page_n
     }
-    pub fn get_pending_page_n(&self) -> i64 {
+    pub fn pending_page_n(&self) -> i64 {
         self.pending_page_n
     }
-    pub fn get_free_alloc(&self) -> i64 {
+    pub fn free_alloc(&self) -> i64 {
         self.free_alloc
     }
 
-    pub fn get_freelist_inuse(&self) -> i64 {
+    pub fn freelist_inuse(&self) -> i64 {
         self.freelist_inuse
     }
-    pub fn get_tx_n(&self) -> i64 {
+    pub fn tx_n(&self) -> i64 {
         self.tx_n
     }
-    pub fn get_open_tx_n(&self) -> i64 {
+    pub fn open_tx_n(&self) -> i64 {
         self.open_tx_n
     }
 
