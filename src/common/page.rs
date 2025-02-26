@@ -788,6 +788,7 @@ impl PageInfo {
 pub(crate) struct OwnedPage {
     ///Page bytes buffer
     page: Vec<u8>,
+    ptr: PhantomData<u8>,
 }
 
 impl OwnedPage {
@@ -796,12 +797,16 @@ impl OwnedPage {
     pub(crate) fn new(size: usize) -> Self {
         Self {
             page: vec![0u8; size],
+            ptr: PhantomData::default(),
         }
     }
 
     /// build OwnedPage from Vec<u8> buffer
     pub(crate) fn from_vec(buf: Vec<u8>) -> Self {
-        Self { page: buf }
+        Self {
+            page: buf,
+            ptr: PhantomData::default(),
+        }
     }
 
     /// reserve capacity of underlying vector to size

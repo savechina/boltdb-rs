@@ -13,6 +13,7 @@ use std::cell::RefCell;
 
 use crate::bucket::Bucket;
 use crate::common::page;
+use crate::common::page::OwnedPage;
 use crate::common::page::Page;
 use crate::common::types::Byte;
 use crate::common::types::Bytes;
@@ -21,23 +22,24 @@ use crate::common::types::Value;
 use crate::common::PgId;
 use crate::node::Node;
 
-trait CursorApi {
+pub trait CursorApi<'tx> {
     fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     // fn first(&mut self) -> (Key, Value);
     fn last(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     fn next(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     fn prev(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
-    fn seek(&mut self, seek: &Bytes) -> Option<(Entry)>;
+    fn seek(&mut self, seek: &Bytes) -> Option<Entry<'tx>>;
     fn delete(&mut self) -> crate::Result<()>; // Return Result for error handling
 }
 
-struct Cursor<'tx> {
+pub struct Cursor<'tx> {
     raw: RefCell<RawCursor<'tx>>,
 }
 
-impl<'tx> CursorApi for Cursor<'tx> {
+impl<'tx> CursorApi<'tx> for Cursor<'tx> {
     fn first(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
         let (key, value, flags) = self.raw.borrow().raw_first();
+        // let entry = self.raw.borrow().raw_first();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
             true => return Some((key, Some(value))),
@@ -72,7 +74,7 @@ impl<'tx> CursorApi for Cursor<'tx> {
         }
     }
 
-    fn seek(&mut self, k: &[u8]) -> Option<(Entry)> {
+    fn seek(&mut self, k: &[u8]) -> Option<Entry<'tx>> {
         let (key, value, flags) = self.raw.borrow_mut().raw_seek(k);
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
@@ -93,20 +95,58 @@ impl<'tx> CursorApi for Cursor<'tx> {
     }
 }
 
-trait RawCursorApi<'tx> {
-    fn next(&mut self) -> Option<(Key, Option<Value>)>;
+pub(crate) trait RawCursorApi<'tx> {
+    fn bucket(&self) -> &'tx Bucket;
 
-    fn raw_first(&self) -> &RawEntry<'tx>;
+    // First moves the cursor to the first item in the bucket and returns its key and value.
+    // If the bucket is empty then a nil key and value are returned.
+    // The returned key and value are only valid for the life of the transaction.
+    fn raw_first(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+
+    // next moves to the next leaf element and returns the key and value.
+    // If the cursor is at the last leaf element then it stays there and returns nil.
+    fn raw_next(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+
+    // prev moves the cursor to the previous item in the bucket and returns its key and value.
+    // If the cursor is at the beginning of the bucket then a nil key and value are returned.
+    fn raw_prev(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+
+    // last moves the cursor to the last leaf element under the last page in the stack.
+    fn raw_last(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+
+    // seek moves the cursor to a given key and returns it.
+    // If the key does not exist then the next key is used.
+    fn raw_seek(&mut self, k: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32);
+
+    // first moves the cursor to the first leaf element under the last page in the stack.
+    fn go_to_first_element_on_the_stack(&self) -> ();
+
+    // search recursively performs a binary search against a given page/node until it finds a given key.
+    fn search(&mut self, pgId: PgId) -> ();
+
+    // nsearch searches the leaf node on the top of the stack for a key.
+    fn nsearch(&mut self, key: &[u8]);
+
+    fn search_node(&mut self, key: &[u8], node: &Node<'tx>);
+
+    fn search_page(&mut self, key: &[u8], page: &Page);
+
+    fn key_value(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+
+    fn raw_delete(&self) -> crate::Result<()>;
+
+    /// node returns the node that the cursor is currently positioned on.
+    fn node(&mut self) -> RefCell<Node<'tx>>;
 }
 
 struct RawCursor<'tx> {
-    bucket: &'tx Bucket<'tx>, // Reference to the bucket with lifetime bound
+    bucket: &'tx Bucket<'tx>,
     stack: RefCell<Vec<ElemRef<'tx>>>,
 }
 
-impl<'tx> RawCursor<'tx> {
+impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     // Bucket returns the bucket that this cursor was created from.
-    pub fn bucket(&self) -> &'tx Bucket {
+    fn bucket(&self) -> &'tx Bucket {
         self.bucket
     }
 
@@ -157,10 +197,40 @@ impl<'tx> RawCursor<'tx> {
         todo!()
     }
 
+    // first moves the cursor to the first leaf element under the last page in the stack.
     fn go_to_first_element_on_the_stack(&self) -> () {
-        todo!()
+        loop {
+            let stack = self.stack.borrow_mut();
+
+            let r = stack.last().unwrap();
+
+            if r.is_leaf() {
+                break;
+            }
+
+            let pgid: PgId = {
+                if let Some(node) = &r.node {
+                    let inode = node.0.inodes.borrow();
+                    let elem = inode.get(r.index as usize);
+                    elem.pgid()
+                } else if let Some(page) = &r.page {
+                    page.branch_page_element(r.index as usize).pgid()
+                } else {
+                    panic!("ElemRef not page or node")
+                }
+            };
+
+            let page_node = self.bucket.page_node(pgid);
+
+            self.stack.borrow_mut().push(ElemRef {
+                page: Some(page_node.0),
+                node: Some(page_node.1),
+                index: 0,
+            });
+        }
     }
 
+    /// search recursively performs a binary search against a given page/node until it finds a given key.
     fn search(&mut self, pgId: PgId) -> () {
         todo!()
     }
@@ -169,11 +239,24 @@ impl<'tx> RawCursor<'tx> {
         todo!()
     }
 
+    fn search_node(&mut self, key: &[u8], node: &Node<'tx>) {
+        todo!()
+    }
+
+    fn search_page(&mut self, key: &[u8], page: &Page) {
+        todo!()
+    }
+
     fn key_value(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
         todo!()
     }
 
     fn raw_delete(&self) -> crate::Result<()> {
+        todo!()
+    }
+
+    /// node returns the node that the cursor is currently positioned on.
+    fn node(&mut self) -> RefCell<Node<'tx>> {
         todo!()
     }
 }
@@ -196,31 +279,63 @@ enum PageNode<'tx> {
 
 // elemRef represents a reference to an element on a given page/node.
 // This is used to track the current position of the cursor during iteration.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ElemRef<'tx> {
     page: Option<&'tx Page>,      // Option for handling potential nil pages
     node: Option<&'tx Node<'tx>>, // Option for handling potential nil nodes
-    index: usize,                 // Use usize for memory-related integer
+    index: u32,
 }
 
-impl<'a> ElemRef<'a> {
-    // isLeaf returns whether the ref is pointing at a leaf page/node.
+impl<'tx> ElemRef<'tx> {
+    /// isLeaf returns whether the ref is pointing at a leaf page/node.
     fn is_leaf(&self) -> bool {
-        if self.node.is_some() {
-            let is_leaf = self.node.map_or(false, |n| n.is_leaf());
-            return is_leaf;
+        // if self.node.is_some() {
+        //     let is_leaf = self.node.map_or(false, |n| n.is_leaf());
+        //     return is_leaf;
+        // }
+
+        // //assert is page
+        // if self.page.is_none() {
+        //     panic!("ElemRef not page")
+        // }
+
+        // self.page.unwrap().is_leaf_page();
+
+        if let Some(node) = self.node {
+            return node.is_leaf();
         }
 
-        //assert is page
-        if self.page.is_none() {
-            panic!("ElemRef not page")
+        // assert is page
+        if let Some(page) = self.page {
+            return page.is_leaf_page();
         }
 
-        self.page.unwrap().is_leaf_page()
+        panic!("ElemRef not page or node");
     }
 
-    fn count(&self) -> usize {
-        self.node.map_or(0, |n| n.0.inodes.borrow().len()) // Use map_or for optional counting
+    /// count returns the number of inodes or page elements.
+    fn count(&self) -> u32 {
+        // if self.node.is_some() {
+        //     let count = self.node.map_or(0, |n| n.0.inodes.borrow().len()); // Use map_or for optional counting
+        //     return count as u32;
+        // }
+        // //assert is page
+        // if self.page.is_none() {
+        //     panic!("ElemRef not page")
+        // }
+
+        // return self.page.unwrap().count() as u32;
+
+        if let Some(node) = self.node {
+            let len = node.0.inodes.borrow().len();
+            return len as u32;
+        }
+
+        if let Some(page) = self.page {
+            return page.count() as u32;
+        }
+
+        panic!("ElemRef not page or node");
     }
 }
 
