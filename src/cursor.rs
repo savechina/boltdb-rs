@@ -23,12 +23,34 @@ use crate::common::PgId;
 use crate::node::Node;
 
 pub trait CursorApi<'tx> {
+    /// First moves the cursor to the first item in the bucket and returns its key and value.
+    /// If the bucket is empty then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
-    // fn first(&mut self) -> (Key, Value);
+
+    /// Last moves the cursor to the last item in the bucket and returns its key and value.
+    /// If the bucket is empty then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn last(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+
+    /// Next moves the cursor to the next item in the bucket and returns its key and value.
+    /// If the cursor is at the end of the bucket then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn next(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+
+    /// Prev moves the cursor to the previous item in the bucket and returns its key and value.
+    /// If the cursor is at the beginning of the bucket then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn prev(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+
+    /// Seek moves the cursor to a given key using a b-tree search and returns it.
+    /// If the key does not exist then the next key is used. If no keys
+    /// follow, a nil key is returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn seek(&mut self, seek: &Bytes) -> Option<Entry<'tx>>;
+
+    /// Delete removes the current key/value under the cursor from the bucket.
+    /// Delete fails if current key/value is a bucket or if the transaction is not writable.
     fn delete(&mut self) -> crate::Result<()>; // Return Result for error handling
 }
 
@@ -37,6 +59,9 @@ pub struct Cursor<'tx> {
 }
 
 impl<'tx> CursorApi<'tx> for Cursor<'tx> {
+    /// First moves the cursor to the first item in the bucket and returns its key and value.
+    /// If the bucket is empty then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn first(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
         let (key, value, flags) = self.raw.borrow().raw_first();
         // let entry = self.raw.borrow().raw_first();
@@ -96,35 +121,36 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
 }
 
 pub(crate) trait RawCursorApi<'tx> {
+    /// Bucket returns the bucket that this cursor was created from.
     fn bucket(&self) -> &'tx Bucket;
 
-    // First moves the cursor to the first item in the bucket and returns its key and value.
-    // If the bucket is empty then a nil key and value are returned.
-    // The returned key and value are only valid for the life of the transaction.
+    /// First moves the cursor to the first item in the bucket and returns its key and value.
+    /// If the bucket is empty then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn raw_first(&self) -> (&'tx Bytes, &'tx Bytes, u32);
 
-    // next moves to the next leaf element and returns the key and value.
-    // If the cursor is at the last leaf element then it stays there and returns nil.
+    /// next moves to the next leaf element and returns the key and value.
+    /// If the cursor is at the last leaf element then it stays there and returns nil.
     fn raw_next(&self) -> (&'tx Bytes, &'tx Bytes, u32);
 
-    // prev moves the cursor to the previous item in the bucket and returns its key and value.
-    // If the cursor is at the beginning of the bucket then a nil key and value are returned.
+    /// prev moves the cursor to the previous item in the bucket and returns its key and value.
+    /// If the cursor is at the beginning of the bucket then a nil key and value are returned.
     fn raw_prev(&self) -> (&'tx Bytes, &'tx Bytes, u32);
 
-    // last moves the cursor to the last leaf element under the last page in the stack.
+    /// last moves the cursor to the last leaf element under the last page in the stack.
     fn raw_last(&self) -> (&'tx Bytes, &'tx Bytes, u32);
 
-    // seek moves the cursor to a given key and returns it.
-    // If the key does not exist then the next key is used.
+    /// seek moves the cursor to a given key and returns it.
+    /// If the key does not exist then the next key is used.
     fn raw_seek(&mut self, k: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32);
 
-    // first moves the cursor to the first leaf element under the last page in the stack.
+    /// first moves the cursor to the first leaf element under the last page in the stack.
     fn go_to_first_element_on_the_stack(&self) -> ();
 
-    // search recursively performs a binary search against a given page/node until it finds a given key.
-    fn search(&mut self, pgId: PgId) -> ();
+    /// search recursively performs a binary search against a given page/node until it finds a given key.
+    fn search(&mut self, seek: &[u8], pgId: PgId) -> ();
 
-    // nsearch searches the leaf node on the top of the stack for a key.
+    /// nsearch searches the leaf node on the top of the stack for a key.
     fn nsearch(&mut self, key: &[u8]);
 
     fn search_node(&mut self, key: &[u8], node: &Node<'tx>);
@@ -182,6 +208,34 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     }
 
     fn raw_next(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
+        loop {
+            // Attempt to move over one element until we're successful.
+            // Move up the stack as we hit the end of each page in our stack.
+            let mut new_stack_depth = 0;
+            let mut stack_exhausted = true;
+            let mut stack = self.stack.borrow_mut();
+
+            for (depth, elem) in stack.iter_mut().enumerate().rev() {
+                new_stack_depth = depth + 1;
+                if elem.index < elem.count() - 1 {
+                    elem.index += 1;
+                    stack_exhausted = false;
+                    break;
+                }
+            }
+
+            // If we've hit the root page then stop and return. This will leave the
+            // cursor on the last element of the last page.
+            if stack_exhausted {
+                return (&[], &[], 0);
+            }
+
+            stack.truncate(new_stack_depth);
+
+            self.go_to_first_element_on_the_stack();
+
+            self.key_value();
+        }
         todo!()
     }
 
@@ -193,8 +247,15 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         todo!()
     }
 
-    fn raw_seek(&mut self, k: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32) {
-        todo!()
+    fn raw_seek(&mut self, seek: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32) {
+        // Start from root page/node and traverse to correct page.
+        // self.stack.borrow_mut().clear();
+        self.stack.borrow_mut().truncate(0);
+
+        self.search(seek, self.bucket.root());
+
+        // If this is a bucket then return a nil value.
+        self.key_value()
     }
 
     // first moves the cursor to the first leaf element under the last page in the stack.
@@ -231,7 +292,7 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     }
 
     /// search recursively performs a binary search against a given page/node until it finds a given key.
-    fn search(&mut self, pgId: PgId) -> () {
+    fn search(&mut self, seek: &[u8], pgId: PgId) -> () {
         todo!()
     }
 
