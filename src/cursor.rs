@@ -21,24 +21,23 @@ use crate::common::types::Value;
 use crate::common::PgId;
 use crate::node::Node;
 
-struct Cursor<'tx> {
-    bucket: &'tx Bucket<'tx>, // Reference to the bucket with lifetime bound
-    stack: RefCell<Vec<ElemRef<'tx>>>,
-}
-
 trait CursorApi {
     fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     // fn first(&mut self) -> (Key, Value);
     fn last(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     fn next(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
     fn prev(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
-    fn seek(&mut self, seek: &Bytes) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn seek(&mut self, seek: &Bytes) -> Option<(Entry)>;
     fn delete(&mut self) -> crate::Result<()>; // Return Result for error handling
+}
+
+struct Cursor<'tx> {
+    raw: RefCell<RawCursor<'tx>>,
 }
 
 impl<'tx> CursorApi for Cursor<'tx> {
     fn first(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw_first();
+        let (key, value, flags) = self.raw.borrow().raw_first();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
             true => return Some((key, Some(value))),
@@ -47,7 +46,7 @@ impl<'tx> CursorApi for Cursor<'tx> {
     }
 
     fn last(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw_last();
+        let (key, value, flags) = self.raw.borrow().raw_last();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
             true => return Some((key, Some(value))),
@@ -56,7 +55,7 @@ impl<'tx> CursorApi for Cursor<'tx> {
     }
 
     fn next(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw_next();
+        let (key, value, flags) = self.raw.borrow().raw_next();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
             true => return Some((key, Some(value))),
@@ -65,7 +64,7 @@ impl<'tx> CursorApi for Cursor<'tx> {
     }
 
     fn prev(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw_prev();
+        let (key, value, flags) = self.raw.borrow().raw_prev();
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
             true => return Some((key, Some(value))),
@@ -73,23 +72,39 @@ impl<'tx> CursorApi for Cursor<'tx> {
         }
     }
 
-    fn seek(&mut self, k: &[u8]) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw_seek(k);
+    fn seek(&mut self, k: &[u8]) -> Option<(Entry)> {
+        let (key, value, flags) = self.raw.borrow_mut().raw_seek(k);
 
         match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return Some((key, Some(value))),
-            false => return Some((key, None)),
+            true => {
+                return Some(Entry {
+                    key,
+                    value: Some(value),
+                })
+            }
+            false => return Some(Entry { key, value: None }),
         }
     }
 
     fn delete(&mut self) -> crate::Result<()> {
         // self.stack.borrow_mut().last().unwrap();
         // Ok(())
-        return self.raw_delete();
+        return self.raw.borrow().raw_delete();
     }
 }
 
-impl<'tx> Cursor<'tx> {
+trait RawCursorApi<'tx> {
+    fn next(&mut self) -> Option<(Key, Option<Value>)>;
+
+    fn raw_first(&self) -> &RawEntry<'tx>;
+}
+
+struct RawCursor<'tx> {
+    bucket: &'tx Bucket<'tx>, // Reference to the bucket with lifetime bound
+    stack: RefCell<Vec<ElemRef<'tx>>>,
+}
+
+impl<'tx> RawCursor<'tx> {
     // Bucket returns the bucket that this cursor was created from.
     pub fn bucket(&self) -> &'tx Bucket {
         self.bucket
@@ -163,12 +178,20 @@ impl<'tx> Cursor<'tx> {
     }
 }
 
-struct CursorIter<'tx> {
-    cursor: Cursor<'tx>,
+struct Entry<'tx> {
+    key: &'tx Bytes,
+    value: Option<&'tx Bytes>,
 }
 
-trait CursorIterApi {
-    fn next(&mut self) -> Option<(Key, Option<Value>)>;
+struct RawEntry<'tx> {
+    key: &'tx Bytes,
+    value: &'tx Bytes,
+    flags: u32,
+}
+
+enum PageNode<'tx> {
+    Page(Page),
+    Node(Node<'tx>),
 }
 
 // elemRef represents a reference to an element on a given page/node.
