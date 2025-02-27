@@ -9,17 +9,13 @@
 // and return unexpected keys and/or values. You must reposition your cursor
 // after mutating data.
 
-use std::arch::aarch64::vaba_s16;
 use std::cell::RefCell;
 
 use crate::bucket::Bucket;
 use crate::common::page;
 use crate::common::page::OwnedPage;
 use crate::common::page::Page;
-use crate::common::types::Byte;
 use crate::common::types::Bytes;
-use crate::common::types::Key;
-use crate::common::types::Value;
 use crate::common::PgId;
 use crate::node::Node;
 
@@ -27,22 +23,22 @@ pub trait CursorApi<'tx> {
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
-    fn first(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn first(&mut self) -> Option<Entry<'tx>>;
 
     /// Last moves the cursor to the last item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
-    fn last(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn last(&mut self) -> Option<Entry<'tx>>;
 
     /// Next moves the cursor to the next item in the bucket and returns its key and value.
     /// If the cursor is at the end of the bucket then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
-    fn next(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn next(&mut self) -> Option<Entry<'tx>>;
 
     /// Prev moves the cursor to the previous item in the bucket and returns its key and value.
     /// If the cursor is at the beginning of the bucket then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
-    fn prev(&mut self) -> Option<(&Bytes, Option<&Bytes>)>;
+    fn prev(&mut self) -> Option<Entry<'tx>>;
 
     /// Seek moves the cursor to a given key using a b-tree search and returns it.
     /// If the key does not exist then the next key is used. If no keys
@@ -63,35 +59,63 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
-    fn first(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw.borrow().raw_first();
-        // let entry = self.raw.borrow().raw_first();
+    fn first(&mut self) -> Option<Entry<'tx>> {
+        let raw_entry = self.raw.borrow().raw_first();
 
-        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return Some((key, Some(value))),
-            false => return Some((key, None)),
-        }
-    }
-
-    fn last(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw.borrow().raw_last();
-
-        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return Some((key, Some(value))),
-            false => return Some((key, None)),
-        }
-    }
-
-    fn next(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        // let (key, value, flags) = self.raw.borrow().raw_next();
-
-        if let Some(entry) = self.raw.borrow().raw_next() {
-            match (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
-                true => return Some((entry.key, Some(entry.value))),
-                false => return Some((entry.key, None)),
+        match raw_entry {
+            Some(entry) => {
+                if (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+                    return Some(Entry {
+                        key: entry.key,
+                        value: None,
+                    });
+                }
+                return Some(Entry {
+                    key: entry.key,
+                    value: Some(entry.value),
+                });
             }
-        } else {
-            return None;
+            None => None,
+        }
+    }
+
+    fn last(&mut self) -> Option<Entry<'tx>> {
+        let raw_entry = self.raw.borrow().raw_last();
+
+        match raw_entry {
+            Some(entry) => {
+                if (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+                    return Some(Entry {
+                        key: entry.key,
+                        value: None,
+                    });
+                }
+                return Some(Entry {
+                    key: entry.key,
+                    value: Some(entry.value),
+                });
+            }
+            None => None,
+        }
+    }
+
+    fn next(&mut self) -> Option<Entry<'tx>> {
+        let raw_entry = self.raw.borrow().raw_next();
+
+        match raw_entry {
+            Some(entry) => {
+                if (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+                    return Some(Entry {
+                        key: entry.key,
+                        value: None,
+                    });
+                }
+                return Some(Entry {
+                    key: entry.key,
+                    value: Some(entry.value),
+                });
+            }
+            None => None,
         }
         // match (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
         //     true => return Some((key, Some(value))),
@@ -99,26 +123,43 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
         // }
     }
 
-    fn prev(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw.borrow().raw_prev();
+    fn prev(&mut self) -> Option<Entry<'tx>> {
+        let raw_entry = self.raw.borrow().raw_prev();
 
-        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return Some((key, Some(value))),
-            false => return Some((key, None)),
+        match raw_entry {
+            Some(entry) => {
+                if (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+                    return Some(Entry {
+                        key: entry.key,
+                        value: None,
+                    });
+                }
+                return Some(Entry {
+                    key: entry.key,
+                    value: Some(entry.value),
+                });
+            }
+            None => None,
         }
     }
 
     fn seek(&mut self, k: &[u8]) -> Option<Entry<'tx>> {
-        let (key, value, flags) = self.raw.borrow_mut().raw_seek(k);
+        let raw_entry = self.raw.borrow_mut().raw_seek(k);
 
-        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => {
+        match raw_entry {
+            Some(entry) => {
+                if (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+                    return Some(Entry {
+                        key: entry.key,
+                        value: None,
+                    });
+                }
                 return Some(Entry {
-                    key,
-                    value: Some(value),
-                })
+                    key: entry.key,
+                    value: Some(entry.value),
+                });
             }
-            false => return Some(Entry { key, value: None }),
+            None => None,
         }
     }
 
@@ -136,7 +177,7 @@ pub(crate) trait RawCursorApi<'tx> {
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
-    fn raw_first(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+    fn raw_first(&self) -> Option<RawEntry<'tx>>;
 
     /// next moves to the next leaf element and returns the key and value.
     /// If the cursor is at the last leaf element then it stays there and returns nil.
@@ -144,14 +185,14 @@ pub(crate) trait RawCursorApi<'tx> {
 
     /// prev moves the cursor to the previous item in the bucket and returns its key and value.
     /// If the cursor is at the beginning of the bucket then a nil key and value are returned.
-    fn raw_prev(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+    fn raw_prev(&self) -> Option<RawEntry<'tx>>;
 
     /// last moves the cursor to the last leaf element under the last page in the stack.
-    fn raw_last(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+    fn raw_last(&self) -> Option<RawEntry<'tx>>;
 
     /// seek moves the cursor to a given key and returns it.
     /// If the key does not exist then the next key is used.
-    fn raw_seek(&mut self, k: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32);
+    fn raw_seek(&mut self, k: &[u8]) -> Option<RawEntry<'tx>>;
 
     /// first moves the cursor to the first leaf element under the last page in the stack.
     fn go_to_first_element_on_the_stack(&self) -> ();
@@ -166,7 +207,7 @@ pub(crate) trait RawCursorApi<'tx> {
 
     fn search_page(&mut self, key: &[u8], page: &Page);
 
-    fn key_value(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+    fn key_value(&self) -> Option<RawEntry<'tx>>;
 
     fn raw_delete(&self) -> crate::Result<()>;
 
@@ -185,7 +226,7 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         self.bucket
     }
 
-    fn raw_first(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
+    fn raw_first(&self) -> Option<RawEntry<'tx>> {
         // Clear the stack
         self.stack.borrow_mut().clear();
 
@@ -206,16 +247,11 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
             self.raw_next();
         }
 
-        let (k, v, flags) = self.key_value();
-
-        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return (k, &[], flags),
-            false => (),
-        }
-
-        (k, v, flags)
+        return self.key_value();
     }
 
+    /// next moves to the next leaf element and returns the key and value.
+    /// If the cursor is at the last leaf element then it stays there and returns nil.
     fn raw_next(&self) -> Option<RawEntry<'tx>> {
         loop {
             // Attempt to move over one element until we're successful.
@@ -240,26 +276,30 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
                 return None;
             }
 
+            stack.pop();
+
             stack.truncate(new_stack_depth);
 
             self.go_to_first_element_on_the_stack();
 
-            let (key, value, flags) = self.key_value();
-
-            Some(RawEntry { key, value, flags });
+            return self.key_value();
         }
+    }
+
+    // prev moves the cursor to the previous item in the bucket and returns its key and value.
+    // If the cursor is at the beginning of the bucket then a nil key and value are returned.
+    fn raw_prev(&self) -> Option<RawEntry<'tx>> {
         todo!()
     }
 
-    fn raw_prev(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
+    /// last moves the cursor to the last leaf element under the last page in the stack.
+    fn raw_last(&self) -> Option<RawEntry<'tx>> {
         todo!()
     }
 
-    fn raw_last(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
-        todo!()
-    }
-
-    fn raw_seek(&mut self, seek: &[u8]) -> (&'tx Bytes, &'tx Bytes, u32) {
+    /// seek moves the cursor to a given key and returns it.
+    /// If the key does not exist then the next key is used.
+    fn raw_seek(&mut self, seek: &[u8]) -> Option<RawEntry<'tx>> {
         // Start from root page/node and traverse to correct page.
         // self.stack.borrow_mut().clear();
         self.stack.borrow_mut().truncate(0);
@@ -267,7 +307,7 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         self.search(seek, self.bucket.root());
 
         // If this is a bucket then return a nil value.
-        self.key_value()
+        return self.key_value();
     }
 
     // first moves the cursor to the first leaf element under the last page in the stack.
@@ -320,7 +360,7 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         todo!()
     }
 
-    fn key_value(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
+    fn key_value(&self) -> Option<RawEntry<'tx>> {
         todo!()
     }
 
