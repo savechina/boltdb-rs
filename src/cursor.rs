@@ -9,6 +9,7 @@
 // and return unexpected keys and/or values. You must reposition your cursor
 // after mutating data.
 
+use std::arch::aarch64::vaba_s16;
 use std::cell::RefCell;
 
 use crate::bucket::Bucket;
@@ -82,12 +83,20 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
     }
 
     fn next(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
-        let (key, value, flags) = self.raw.borrow().raw_next();
+        // let (key, value, flags) = self.raw.borrow().raw_next();
 
-        match (flags & page::BUCKET_LEAF_FLAG) != 0 {
-            true => return Some((key, Some(value))),
-            false => return Some((key, None)),
+        if let Some(entry) = self.raw.borrow().raw_next() {
+            match (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+                true => return Some((entry.key, Some(entry.value))),
+                false => return Some((entry.key, None)),
+            }
+        } else {
+            return None;
         }
+        // match (entry.flags & page::BUCKET_LEAF_FLAG) != 0 {
+        //     true => return Some((key, Some(value))),
+        //     false => return Some((key, None)),
+        // }
     }
 
     fn prev(&mut self) -> Option<(&'tx Bytes, Option<&'tx Bytes>)> {
@@ -131,7 +140,7 @@ pub(crate) trait RawCursorApi<'tx> {
 
     /// next moves to the next leaf element and returns the key and value.
     /// If the cursor is at the last leaf element then it stays there and returns nil.
-    fn raw_next(&self) -> (&'tx Bytes, &'tx Bytes, u32);
+    fn raw_next(&self) -> Option<RawEntry<'tx>>;
 
     /// prev moves the cursor to the previous item in the bucket and returns its key and value.
     /// If the cursor is at the beginning of the bucket then a nil key and value are returned.
@@ -207,12 +216,13 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         (k, v, flags)
     }
 
-    fn raw_next(&self) -> (&'tx Bytes, &'tx Bytes, u32) {
+    fn raw_next(&self) -> Option<RawEntry<'tx>> {
         loop {
             // Attempt to move over one element until we're successful.
             // Move up the stack as we hit the end of each page in our stack.
             let mut new_stack_depth = 0;
             let mut stack_exhausted = true;
+
             let mut stack = self.stack.borrow_mut();
 
             for (depth, elem) in stack.iter_mut().enumerate().rev() {
@@ -227,14 +237,16 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
             // If we've hit the root page then stop and return. This will leave the
             // cursor on the last element of the last page.
             if stack_exhausted {
-                return (&[], &[], 0);
+                return None;
             }
 
             stack.truncate(new_stack_depth);
 
             self.go_to_first_element_on_the_stack();
 
-            self.key_value();
+            let (key, value, flags) = self.key_value();
+
+            Some(RawEntry { key, value, flags });
         }
         todo!()
     }
@@ -328,9 +340,9 @@ struct Entry<'tx> {
 }
 
 struct RawEntry<'tx> {
-    key: &'tx Bytes,
-    value: &'tx Bytes,
-    flags: u32,
+    pub(crate) key: &'tx Bytes,
+    pub(crate) value: &'tx Bytes,
+    pub(crate) flags: u32,
 }
 
 enum PageNode<'tx> {
