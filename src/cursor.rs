@@ -17,6 +17,7 @@ use crate::common::page::OwnedPage;
 use crate::common::page::Page;
 use crate::common::types::Bytes;
 use crate::common::PgId;
+use crate::errors::Error;
 use crate::node::Node;
 
 pub trait CursorApi<'tx> {
@@ -79,6 +80,9 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
         }
     }
 
+    /// Last moves the cursor to the last item in the bucket and returns its key and value.
+    /// If the bucket is empty then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn last(&mut self) -> Option<Entry<'tx>> {
         let raw_entry = self.raw.borrow().raw_last();
 
@@ -99,6 +103,9 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
         }
     }
 
+    /// Next moves the cursor to the next item in the bucket and returns its key and value.
+    /// If the cursor is at the end of the bucket then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn next(&mut self) -> Option<Entry<'tx>> {
         let raw_entry = self.raw.borrow().raw_next();
 
@@ -123,6 +130,9 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
         // }
     }
 
+    /// Prev moves the cursor to the previous item in the bucket and returns its key and value.
+    /// If the cursor is at the beginning of the bucket then a nil key and value are returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn prev(&mut self) -> Option<Entry<'tx>> {
         let raw_entry = self.raw.borrow().raw_prev();
 
@@ -143,6 +153,10 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
         }
     }
 
+    /// Seek moves the cursor to a given key using a b-tree search and returns it.
+    /// If the key does not exist then the next key is used. If no keys
+    /// follow, a nil key is returned.
+    /// The returned key and value are only valid for the life of the transaction.
     fn seek(&mut self, k: &[u8]) -> Option<Entry<'tx>> {
         let raw_entry = self.raw.borrow_mut().raw_seek(k);
 
@@ -163,10 +177,10 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
         }
     }
 
+    /// Delete removes the current key/value under the cursor from the bucket.
+    /// Delete fails if current key/value is a bucket or if the transaction is not writable.
     fn delete(&mut self) -> crate::Result<()> {
-        // self.stack.borrow_mut().last().unwrap();
-        // Ok(())
-        return self.raw.borrow().raw_delete();
+        return self.raw.borrow_mut().raw_delete();
     }
 }
 
@@ -203,13 +217,18 @@ pub(crate) trait RawCursorApi<'tx> {
     /// nsearch searches the leaf node on the top of the stack for a key.
     fn nsearch(&mut self, key: &[u8]);
 
+    /// search recursively performs a binary search against a given node until it finds a given key.
     fn search_node(&mut self, key: &[u8], node: &Node<'tx>);
 
+    /// search recursively performs a binary search against a given page until it finds a given key.
     fn search_page(&mut self, key: &[u8], page: &Page);
 
+    /// keyValue returns the key and value of the current leaf element.
     fn key_value(&self) -> Option<RawEntry<'tx>>;
 
-    fn raw_delete(&self) -> crate::Result<()>;
+    // Delete removes the current key/value under the cursor from the bucket.
+    // Delete fails if current key/value is a bucket or if the transaction is not writable.
+    fn raw_delete(&mut self) -> crate::Result<()>;
 
     /// node returns the node that the cursor is currently positioned on.
     fn node(&mut self) -> RefCell<Node<'tx>>;
@@ -243,8 +262,10 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
 
         // If we land on an empty page then move to the next value.
         // https://github.com/boltdb/bolt/issues/450
-        if self.stack.borrow().last().unwrap().count() == 0 {
-            self.raw_next();
+        if let Some(elem) = self.stack.borrow().last() {
+            if elem.count() == 0 {
+                self.raw_next();
+            }
         }
 
         return self.key_value();
@@ -263,6 +284,7 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
 
             for (depth, elem) in stack.iter_mut().enumerate().rev() {
                 new_stack_depth = depth + 1;
+
                 if elem.index < elem.count() - 1 {
                     elem.index += 1;
                     stack_exhausted = false;
@@ -276,11 +298,17 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
                 return None;
             }
 
-            stack.pop();
-
             stack.truncate(new_stack_depth);
 
             self.go_to_first_element_on_the_stack();
+
+            // If this is an empty page then restart and move back up the stack.
+            // https://github.com/boltdb/bolt/issues/450
+            if let Some(elem) = stack.last() {
+                if elem.count() == 0 {
+                    continue;
+                }
+            }
 
             return self.key_value();
         }
@@ -364,8 +392,14 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         todo!()
     }
 
-    fn raw_delete(&self) -> crate::Result<()> {
-        todo!()
+    fn raw_delete(&mut self) -> crate::Result<()> {
+        if let Some(raw_entry) = self.key_value() {
+            if raw_entry.flags & page::BUCKET_LEAF_FLAG != 0 {
+                return Err(Error::IncompatibleValue);
+            }
+            self.node().borrow_mut().del(raw_entry.key);
+        }
+        Ok(())
     }
 
     /// node returns the node that the cursor is currently positioned on.
@@ -374,7 +408,7 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     }
 }
 
-struct Entry<'tx> {
+pub struct Entry<'tx> {
     key: &'tx Bytes,
     value: Option<&'tx Bytes>,
 }
@@ -390,8 +424,8 @@ enum PageNode<'tx> {
     Node(Node<'tx>),
 }
 
-// elemRef represents a reference to an element on a given page/node.
-// This is used to track the current position of the cursor during iteration.
+/// elemRef represents a reference to an element on a given page/node.
+/// This is used to track the current position of the cursor during iteration.
 #[derive(Debug, Clone)]
 struct ElemRef<'tx> {
     page: Option<&'tx Page>,      // Option for handling potential nil pages
