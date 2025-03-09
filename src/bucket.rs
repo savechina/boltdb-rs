@@ -9,6 +9,7 @@ use types::Key;
 // use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::AddAssign;
 
@@ -18,7 +19,7 @@ const MAX_KEY_SIZE: usize = 32768;
 // MaxValueSize is the maximum length of a value, in bytes.
 const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
 
-const BUCKET_HEADER_SIZE: usize = mem::size_of::<Bucket>();
+const BUCKET_HEADER_SIZE: usize = mem::size_of::<RawBucket>();
 
 pub(crate) const MIN_FILL_PERCENT: f64 = 0.1;
 pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
@@ -132,15 +133,19 @@ pub trait BucketApi<'tx> {
     fn structure(self) -> Result<BucketStructure>;
 }
 
+pub struct Bucket<'tx> {
+    raw: RefCell<RawBucket<'tx>>,
+}
+
 // Bucket represents a collection of key/value pairs inside the database.
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct Bucket<'tx> {
+pub struct RawBucket<'tx> {
     pub(crate) bucket: InBucket,
     // the associated transaction, WeakTx
     pub(crate) tx: WeakTx<'tx>,
     // subbucket cache
-    pub(crate) buckets: RefCell<HashMap<Key, Bucket<'tx>>>,
+    pub(crate) buckets: RefCell<HashMap<Key, RawBucket<'tx>>>,
     // inline page reference
     pub(crate) page: Option<OwnedPage>,
     // materialized node for the root page
@@ -156,7 +161,7 @@ pub struct Bucket<'tx> {
     pub(crate) fill_percent: f64,
 }
 
-impl<'tx> Bucket<'tx> {
+impl<'tx> RawBucket<'tx> {
     pub(crate) fn node(&self, child_pgid: PgId, from: crate::node::WeakNode) -> Node {
         todo!()
     }

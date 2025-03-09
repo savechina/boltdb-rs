@@ -1,4 +1,4 @@
-use crate::bucket::{self, Bucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::bucket::{self, RawBucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
 use crate::common::inode::Inodes;
 use crate::common::page::{Page, PageFlags, MIN_KEYS_PER_PAGE};
 use crate::common::page::{
@@ -25,7 +25,7 @@ use crate::errors::Result;
 /// A raw node in the B-Tree. This struct represents a page that can be either a branch or a leaf.
 // Struct representing an in-memory, deserialized page
 pub(crate) struct RawNode<'tx> {
-    bucket: *const Bucket<'tx>, // Use Option<NonNull<T>> for optional non-null pointers
+    bucket: *const RawBucket<'tx>, // Use Option<NonNull<T>> for optional non-null pointers
     is_leaf: AtomicBool,
     unbalanced: AtomicBool,
     spilled: AtomicBool,
@@ -173,18 +173,18 @@ impl<'tx> Node<'tx> {
         self.0.inodes.borrow().len()
     }
 
-    pub(super) fn bucket<'a, 'b: 'a>(&'a self) -> Option<&'tx Bucket<'tx>> {
+    pub(super) fn bucket<'a, 'b: 'a>(&'a self) -> Option<&'tx RawBucket<'tx>> {
         if self.0.bucket.is_null() {
             return None;
         }
-        Some(unsafe { &*(self.0.bucket as *const Bucket) })
+        Some(unsafe { &*(self.0.bucket as *const RawBucket) })
     }
 
-    pub(super) fn bucket_mut<'a, 'b: 'a>(&'a self) -> Option<&'tx mut Bucket<'tx>> {
+    pub(super) fn bucket_mut<'a, 'b: 'a>(&'a self) -> Option<&'tx mut RawBucket<'tx>> {
         if self.0.bucket.is_null() {
             return None;
         }
-        Some(unsafe { &mut *(self.0.bucket as *mut Bucket) })
+        Some(unsafe { &mut *(self.0.bucket as *mut RawBucket) })
     }
 
     // nextSibling returns the next node with the same parent.
@@ -553,7 +553,7 @@ impl<'tx> Node<'tx> {
 }
 
 pub(crate) struct NodeBuilder<'tx> {
-    bucket: Option<*const Bucket<'tx>>,
+    bucket: Option<*const RawBucket<'tx>>,
     is_leaf: bool,
     pg_id: PgId,
     parent: WeakNode<'tx>,
@@ -561,7 +561,7 @@ pub(crate) struct NodeBuilder<'tx> {
 }
 
 impl<'tx> NodeBuilder<'tx> {
-    pub(crate) fn new(bucket: *const Bucket<'tx>) -> Self {
+    pub(crate) fn new(bucket: *const RawBucket<'tx>) -> Self {
         NodeBuilder {
             bucket: Some(bucket),
             is_leaf: false,
@@ -586,7 +586,7 @@ impl<'tx> NodeBuilder<'tx> {
         self
     }
 
-    fn bucket(mut self, value: *const Bucket<'tx>) -> Self {
+    fn bucket(mut self, value: *const RawBucket<'tx>) -> Self {
         self.bucket = Some(value);
         self
     }

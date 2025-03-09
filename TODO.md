@@ -10,13 +10,19 @@
 # WIP
 
 ## src/bucket.rs
-- [ ] bucket.go
+- [ ] bucket.go write trait API and methods
+- [ ] bucket.go implement trait API and methods
+- [ ] 
 
 ## src/cursor.rs
+- [ ] Cursor Next and Prev and Seek implementations
+- [ ] Cursor Search implementations
 
 ## src/db.rs
 
 ## src/node.rs
+- [ ] rewrite RefCell to auto ref pointer
+- [ ] rewrite *const RawBucket to Bucket Reference.
 
 ## src/tx.rs
 
@@ -30,6 +36,9 @@
 - [ ] bucket.go
 - [ ] db.go
 - [ ] db_test.go
+- [x] cursor.go
+- [x] errors.go
+- [x] errors/errors.go
 
 # NotStarted
 - [ ] allocate_test.go
@@ -73,14 +82,11 @@
 - [ ] cmd/bbolt/utils_test.go
 - [ ] compact.go
 - [ ] concurrent_test.go
-- [ ] cursor.go
 - [ ] cursor_test.go
 - [ ] db.go
 - [ ] db_test.go
 - [ ] db_whitebox_test.go
 - [x] doc.go
-- [ ] errors.go
-- [ ] errors/errors.go
 - [ ] internal/btesting/btesting.go
 - [ ] internal/common/unsafe.go
 - [ ] internal/common/utils.go

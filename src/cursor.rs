@@ -10,8 +10,9 @@
 // after mutating data.
 
 use std::cell::RefCell;
+use std::marker::PhantomData;
 
-use crate::bucket::Bucket;
+use crate::bucket::RawBucket;
 use crate::common::page;
 use crate::common::page::OwnedPage;
 use crate::common::page::Page;
@@ -186,7 +187,7 @@ impl<'tx> CursorApi<'tx> for Cursor<'tx> {
 
 pub(crate) trait RawCursorApi<'tx> {
     /// Bucket returns the bucket that this cursor was created from.
-    fn bucket(&self) -> &'tx Bucket;
+    fn bucket(&self) -> &'tx RawBucket;
 
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
@@ -235,13 +236,13 @@ pub(crate) trait RawCursorApi<'tx> {
 }
 
 struct RawCursor<'tx> {
-    bucket: &'tx Bucket<'tx>,
+    bucket: &'tx RawBucket<'tx>,
     stack: RefCell<Vec<ElemRef<'tx>>>,
 }
 
 impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     // Bucket returns the bucket that this cursor was created from.
-    fn bucket(&self) -> &'tx Bucket {
+    fn bucket(&self) -> &'tx RawBucket {
         self.bucket
     }
 
