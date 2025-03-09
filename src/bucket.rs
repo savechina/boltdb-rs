@@ -1,6 +1,7 @@
 use crate::common::bucket::InBucket;
 use crate::common::page::{OwnedPage, Page, PgId};
-use crate::common::types;
+use crate::common::types::{self, Bytes};
+use crate::cursor::Cursor;
 use crate::errors::{Error, Result};
 use crate::node::Node;
 use crate::tx::{self, Tx, WeakTx};
@@ -25,6 +26,111 @@ pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
 /// DefaultFillPercent is the percentage that split pages are filled.
 /// This value can be changed by setting Bucket.FillPercent.
 pub(crate) const DEFAULT_FILL_PERCENT: f64 = 0.5;
+
+pub trait BucketApi<'tx> {
+    /// Tx returns the tx of the bucket.
+    fn tx(self) -> Result<Tx<'tx>>;
+
+    /// Root returns the root of the bucket.
+    fn root(&self) -> PgId;
+
+    /// Writable returns whether the bucket is writable.
+    fn writeable(&self) -> bool;
+
+    /// Cursor creates a cursor associated with the bucket.
+    /// The cursor is only valid as long as the transaction is open.
+    /// Do not use a cursor after the transaction is closed.
+    fn cursor(self) -> Result<Cursor<'tx>>;
+
+    // Bucket retrieves a nested bucket by name.
+    // Returns nil if the bucket does not exist.
+    // The bucket instance is only valid for the lifetime of the transaction.
+    fn bucket(self, name: &Bytes) -> Result<Bucket<'tx>>;
+
+    // Bucket retrieves a nested bucket by name.
+    // Returns nil if the bucket does not exist.
+    // The bucket instance is only valid for the lifetime of the transaction.
+    fn bucket_mut(&self, name: &Bytes) -> Result<Bucket<'tx>>;
+
+    // CreateBucket creates a new bucket at the given key and returns the new bucket.
+    // Returns an error if the key already exists, if the bucket name is blank, or if the bucket name is too long.
+    // The bucket instance is only valid for the lifetime of the transaction.
+    fn create_bucket(&mut self, name: &Bytes) -> Result<Bucket<'tx>>;
+
+    // CreateBucketIfNotExists creates a new bucket if it doesn't already exist and returns a reference to it.
+    // Returns an error if the bucket name is blank, or if the bucket name is too long.
+    // The bucket instance is only valid for the lifetime of the transaction.
+    fn create_bucket_if_not_exists(&mut self, name: &Bytes) -> Result<Bucket<'tx>>;
+
+    // DeleteBucket deletes a bucket at the given key.
+    // Returns an error if the bucket does not exist, or if the key represents a non-bucket value.
+    fn delete_bucket(&mut self, name: &Bytes) -> Result<()>;
+
+    // MoveBucket moves a sub-bucket from the source bucket to the destination bucket.
+    // Returns an error if
+    //  1. the sub-bucket cannot be found in the source bucket;
+    //  2. or the key already exists in the destination bucket;
+    //  3. or the key represents a non-bucket value;
+    //  4. the source and destination buckets are the same.
+    fn move_bucket(&mut self, name: &Bytes, to: &Bucket<'tx>) -> Result<()>;
+
+    /// Inspect returns the structure of the bucket.
+    fn inspect(self) -> Result<BucketStructure>;
+
+    fn page_node(&self, root_page: PgId) -> (&Page, &Node);
+
+    fn root_page(self) -> PgId;
+
+    // Get retrieves the value for a key in the bucket.
+    // Returns a nil value if the key does not exist or if the key is a nested bucket.
+    // The returned value is only valid for the life of the transaction.
+    // The returned memory is owned by bbolt and must never be modified; writing to this memory might corrupt the database.
+    fn get(&self, key: &Bytes) -> Option<&Bytes>;
+
+    // Put sets the value for a key in the bucket.
+    // If the key exist then its previous value will be overwritten.
+    // Supplied value must remain valid for the life of the transaction.
+    // Returns an error if the bucket was created from a read-only transaction, if the key is blank, if the key is too large, or if the value is too large.
+    fn put(&mut self, key: &Bytes, value: &Bytes) -> Result<()>;
+
+    // Delete removes a key from the bucket.
+    // If the key does not exist then nothing is done and a nil error is returned.
+    // Returns an error if the bucket was created from a read-only transaction.
+    fn delete(&mut self, key: &Bytes) -> Result<()>;
+
+    /// Sequence returns the current integer for the bucket without incrementing it.
+    fn sequence(&self) -> Result<u64>;
+
+    // SetSequence updates the sequence number for the bucket.
+    // Returns an error if the bucket was created from a read-only transaction.
+    fn set_sequence(&mut self, value: u64) -> Result<()>;
+
+    // NextSequence returns an autoincrementing integer for the bucket.
+    // Returns an error if the bucket was created from a read-only transaction.
+    fn next_sequence(&mut self) -> Result<u64>;
+
+    // ForEach executes a function for each key/value pair in a bucket.
+    // Because ForEach uses a Cursor, the iteration over keys is in lexicographical order.
+    // If the provided function returns an error then the iteration is stopped and
+    // the error is returned to the caller. The provided function must not modify
+    // the bucket; this will result in undefined behavior.
+    fn for_each<F>(&self, f: F) -> Result<()>
+    where
+        F: FnMut(&Bytes, &Bytes) -> Result<()>;
+
+    // ForEach executes a function for each bucket in a bucket.
+    // If the provided function returns an error then the iteration is stopped and
+    // the error is returned to the caller. The provided function must not modify
+    // the bucket; this will result in undefined behavior.
+    fn for_each_bucket<F>(&self, f: F) -> Result<()>
+    where
+        F: FnMut(&Bytes, &Bytes) -> Result<()>;
+
+    // Stats returns stats on a bucket.
+    fn stats(self) -> Result<BucketStats>;
+
+    fn structure(self) -> Result<BucketStructure>;
+}
 
 // Bucket represents a collection of key/value pairs inside the database.
 #[repr(C)]
@@ -77,6 +183,51 @@ impl<'tx> Bucket<'tx> {
     pub(crate) fn root_page(&self) -> PgId {
         return self.bucket.root_page();
     }
+}
+
+pub(crate) trait RawBucketApi<'tx> {
+    // forEachPage iterates over every page in a bucket, including inline pages.
+    fn for_each_page<F>(self, f: F) -> Result<()>
+    where
+        F: FnMut(&Page) -> Result<()>;
+
+    // forEachPageNode iterates over every page (or node) in a bucket.
+    // This also includes inline pages.
+    fn for_each_page_node<F>(self, f: F) -> Result<()>
+    where
+        F: FnMut(&Node) -> Result<()>;
+
+    // forEachPageNode iterates over every page (or node) in a bucket.
+    // This also includes inline pages.
+    fn _for_each_page_node<F>(self, root: PgId, depth: usize, f: F) -> Result<()>
+    where
+        F: FnMut(&Node) -> Result<()>;
+
+    // spill writes all the nodes for this bucket to dirty pages.
+    fn spill(self) -> Result<()>;
+
+    // inlineable returns true if a bucket is small enough to be written inline
+    // and if it contains no subbuckets. Otherwise, returns false.
+    fn inlineable(&self) -> bool;
+
+    // Returns the maximum total size of a bucket to make it a candidate for inlining.
+    fn max_inline_bucket_size(&self) -> usize;
+
+    // write allocates and writes a bucket to a byte slice.
+    fn write(&mut self, p: &mut [u8]) -> &Bytes;
+
+    // rebalance attempts to balance all nodes.
+    fn rebalance(&mut self) -> Result<()>;
+
+    // node creates a node from a page and associates it with a given parent.
+    fn node(&self, pgid: PgId, parent: crate::node::WeakNode) -> Node;
+
+    // free recursively frees all pages in the bucket.
+    fn free(self) -> Result<()>;
+
+    // pageNode returns the in-memory node, if it exists.
+    // Otherwise, returns the underlying page.
+    fn page_node(&self) -> Option<Node>;
 }
 
 // BucketStats records statistics about resources used by a bucket.
