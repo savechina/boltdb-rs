@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops::AddAssign;
 use std::sync::Arc;
+use std::sync::Weak;
 
 // MaxKeySize is the maximum length of a key, in bytes.
 const MAX_KEY_SIZE: usize = 32768;
@@ -135,8 +136,30 @@ pub trait BucketApi<'tx> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Bucket<'tx> {
+pub struct BucketCell<'tx> {
     raw: RefCell<RawBucket<'tx>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Bucket<'tx>(Arc<BucketCell<'tx>>);
+
+#[derive(Debug, Clone)]
+pub(crate) struct WeakBucket<'tx>(Weak<BucketCell<'tx>>);
+
+impl<'tx> WeakBucket<'tx> {
+    pub(crate) fn new() -> Self {
+        Self(Weak::new())
+    }
+
+    pub(crate) fn upgrade(&self) -> Option<Bucket<'tx>> {
+        // self.0.upgrade().map(|bucket| Bucket(Arc::clone(&bucket)))
+        self.0.upgrade().map(Bucket)
+    }
+
+    pub(crate) fn from(bucket: &Bucket<'tx>) -> Self {
+        let value = Arc::new(bucket.clone());
+        Self(Arc::downgrade(&value.0))
+    }
 }
 
 // Bucket represents a collection of key/value pairs inside the database.
@@ -147,7 +170,7 @@ pub struct RawBucket<'tx> {
     // the associated transaction, WeakTx
     pub(crate) tx: WeakTx<'tx>,
     // subbucket cache
-    pub(crate) buckets: RefCell<HashMap<Key, RawBucket<'tx>>>,
+    pub(crate) buckets: RefCell<HashMap<Key, WeakBucket<'tx>>>,
     // inline page reference
     pub(crate) page: Option<OwnedPage>,
     // materialized node for the root page

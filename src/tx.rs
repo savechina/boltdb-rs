@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
-use crate::bucket::{BucketStructure, RawBucket};
+use crate::bucket::{BucketStructure, RawBucket, WeakBucket};
 use crate::common::meta::Meta;
 use crate::common::page::{OwnedPage, PageInfo, PgId};
 use crate::common::types::Bytes;
@@ -103,15 +103,15 @@ pub trait TxApi<'tx>: Clone + Send + Sync {
     fn page(&self, id: PgId) -> crate::Result<PageInfo>;
 }
 
-pub struct TxCell<'tx> {
+pub(crate) struct TxCell<'tx> {
     raw: RefCell<RawTx<'tx>>,
 }
 
-pub struct Tx<'tx>(Arc<RawTx<'tx>>);
+pub struct Tx<'tx>(Arc<TxCell<'tx>>);
 
 impl<'tx> Tx<'tx> {
     pub(crate) fn writable(&self) -> bool {
-        self.0.writable.load(Ordering::Relaxed)
+        self.0.raw.borrow().writable.load(Ordering::Relaxed)
     }
 
     pub(crate) fn new() -> Self {
@@ -124,7 +124,7 @@ unsafe impl<'tx> Sync for Tx<'tx> {}
 unsafe impl<'tx> Send for Tx<'tx> {}
 
 #[derive(Debug, Clone)]
-pub(crate) struct WeakTx<'tx>(Weak<RawTx<'tx>>);
+pub(crate) struct WeakTx<'tx>(Weak<TxCell<'tx>>);
 
 impl<'tx> WeakTx<'tx> {
     pub(crate) fn new() -> Self {
@@ -203,7 +203,7 @@ pub struct RawTx<'tx> {
     /// transaction meta
     meta: RwLock<Meta>,
     /// root bucket
-    root: RwLock<RawBucket<'tx>>,
+    root: RwLock<WeakBucket<'tx>>,
     /// cache page
     pages: RwLock<HashMap<PgId, OwnedPage>>,
     /// transactions stats
