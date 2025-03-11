@@ -103,6 +103,10 @@ pub trait TxApi<'tx>: Clone + Send + Sync {
     fn page(&self, id: PgId) -> crate::Result<PageInfo>;
 }
 
+pub struct TxCell<'tx> {
+    raw: RefCell<RawTx<'tx>>,
+}
+
 pub struct Tx<'tx>(Arc<RawTx<'tx>>);
 
 impl<'tx> Tx<'tx> {
@@ -203,7 +207,7 @@ pub struct RawTx<'tx> {
     /// cache page
     pages: RwLock<HashMap<PgId, OwnedPage>>,
     /// transactions stats
-    stats: Mutex<TxStats>,
+    stats: Option<Arc<TxStats>>,
     /// List of callbacks that will be called after commit
     commit_handlers: Vec<Box<dyn Fn()>>,
 

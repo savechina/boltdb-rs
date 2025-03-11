@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::AddAssign;
+use std::sync::Arc;
 
 // MaxKeySize is the maximum length of a key, in bytes.
 const MAX_KEY_SIZE: usize = 32768;
@@ -133,6 +134,7 @@ pub trait BucketApi<'tx> {
     fn structure(self) -> Result<BucketStructure>;
 }
 
+#[derive(Debug, Clone)]
 pub struct Bucket<'tx> {
     raw: RefCell<RawBucket<'tx>>,
 }
