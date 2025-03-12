@@ -13,8 +13,9 @@ use std::io::Read;
 use std::ops::{Deref, Index};
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
-use std::rc::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::sync::Weak;
 
 use crate::errors::Result;
 
@@ -57,12 +58,14 @@ impl<'tx> WeakNode<'tx> {
     }
 
     pub(crate) fn from(tx: &Node<'tx>) -> Self {
-        WeakNode(Rc::downgrade(&tx.0))
+        WeakNode(Arc::downgrade(&tx.0))
     }
 }
 
+pub(crate) struct NodeCell<'tx>(RefCell<RawNode<'tx>>);
+
 #[derive(Clone, Debug)]
-pub(crate) struct Node<'tx>(pub(crate) Rc<RawNode<'tx>>);
+pub(crate) struct Node<'tx>(pub(crate) Arc<RawNode<'tx>>);
 
 impl<'tx> Node<'tx> {
     // Returns the top-level node this node is attached to.
@@ -592,7 +595,7 @@ impl<'tx> NodeBuilder<'tx> {
     }
 
     pub(crate) fn build(self) -> Node<'tx> {
-        Node(Rc::new(RawNode {
+        Node(Arc::new(RawNode {
             bucket: self.bucket.unwrap(),
             is_leaf: AtomicBool::new(self.is_leaf),
             spilled: AtomicBool::new(false),

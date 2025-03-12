@@ -157,8 +157,7 @@ impl<'tx> WeakBucket<'tx> {
     }
 
     pub(crate) fn from(bucket: &Bucket<'tx>) -> Self {
-        let value = Arc::new(bucket.clone());
-        Self(Arc::downgrade(&value.0))
+        Self(Arc::downgrade(&bucket.0))
     }
 }
 
