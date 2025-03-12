@@ -136,12 +136,112 @@ pub trait BucketApi<'tx> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BucketCell<'tx> {
-    raw: RefCell<RawBucket<'tx>>,
+pub(crate) struct BucketCell<'tx> {
+    pub(crate) raw: RefCell<RawBucket<'tx>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Bucket<'tx>(Arc<BucketCell<'tx>>);
+pub struct Bucket<'tx>(pub Arc<BucketCell<'tx>>);
+
+impl<'tx> BucketApi<'tx> for Bucket<'tx> {
+    fn tx(self) -> Result<Tx<'tx>> {
+        return (&self).0.raw.borrow().tx();
+    }
+
+    fn root(&self) -> PgId {
+        return self.0.raw.borrow().root();
+    }
+
+    fn writeable(&self) -> bool {
+        return self.0.raw.borrow().writeable();
+    }
+
+    fn cursor(self) -> Result<Cursor<'tx>> {
+        todo!()
+    }
+
+    fn bucket(self, name: &Bytes) -> Result<Bucket<'tx>> {
+        todo!()
+    }
+
+    fn bucket_mut(&self, name: &Bytes) -> Result<Bucket<'tx>> {
+        todo!()
+    }
+
+    fn create_bucket(&mut self, name: &Bytes) -> Result<Bucket<'tx>> {
+        todo!()
+    }
+
+    fn create_bucket_if_not_exists(&mut self, name: &Bytes) -> Result<Bucket<'tx>> {
+        todo!()
+    }
+
+    fn delete_bucket(&mut self, name: &Bytes) -> Result<()> {
+        todo!()
+    }
+
+    fn move_bucket(&mut self, name: &Bytes, to: &Bucket<'tx>) -> Result<()> {
+        todo!()
+    }
+
+    fn inspect(self) -> Result<BucketStructure> {
+        todo!()
+    }
+
+    fn page_node(&self, root_page: PgId) -> (&Page, &Node) {
+        todo!()
+    }
+
+    fn root_page(self) -> PgId {
+        todo!()
+    }
+
+    fn get(&self, key: &Bytes) -> Option<&Bytes> {
+        todo!()
+    }
+
+    fn put(&mut self, key: &Bytes, value: &Bytes) -> Result<()> {
+        todo!()
+    }
+
+    fn delete(&mut self, key: &Bytes) -> Result<()> {
+        todo!()
+    }
+
+    fn sequence(&self) -> Result<u64> {
+        todo!()
+    }
+
+    fn set_sequence(&mut self, value: u64) -> Result<()> {
+        todo!()
+    }
+
+    fn next_sequence(&mut self) -> Result<u64> {
+        todo!()
+    }
+
+    fn for_each<F>(&self, f: F) -> Result<()>
+    where
+        F: FnMut(&Bytes, &Bytes) -> Result<()>,
+    {
+        todo!()
+    }
+
+    fn for_each_bucket<F>(&self, f: F) -> Result<()>
+    where
+        F: FnMut(&Bytes, &Bytes) -> Result<()>,
+    {
+        todo!()
+    }
+
+    fn stats(self) -> Result<BucketStats> {
+        todo!()
+    }
+
+    fn structure(self) -> Result<BucketStructure> {
+        todo!()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct WeakBucket<'tx>(Weak<BucketCell<'tx>>);
@@ -161,60 +261,21 @@ impl<'tx> WeakBucket<'tx> {
     }
 }
 
-// Bucket represents a collection of key/value pairs inside the database.
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RawBucket<'tx> {
-    pub(crate) bucket: InBucket,
-    // the associated transaction, WeakTx
-    pub(crate) tx: WeakTx<'tx>,
-    // subbucket cache
-    pub(crate) buckets: RefCell<HashMap<Key, WeakBucket<'tx>>>,
-    // inline page reference
-    pub(crate) page: Option<OwnedPage>,
-    // materialized node for the root page
-    pub(crate) root_node: Option<Node<'tx>>,
-    // node cache
-    // TODO: maybe use refHashMap
-    pub(crate) nodes: RefCell<HashMap<PgId, Node<'tx>>>,
-    // Sets the threshold for filling nodes when they split. By default,
-    // the bucket will fill to 50% but it can be useful to increase this
-    // amount if you know that your write workloads are mostly append-only.
-    //
-    // This is non-persisted across transactions so it must be set in every Tx.
-    pub(crate) fill_percent: f64,
-}
-
-impl<'tx> RawBucket<'tx> {
-    pub(crate) fn node(&self, child_pgid: PgId, from: crate::node::WeakNode) -> Node {
-        todo!()
-    }
-
-    // Tx returns the tx of the bucket.
-    pub(crate) fn tx(&self) -> Result<Tx<'tx>> {
-        return self.tx.upgrade().ok_or(Error::TxClosed);
-    }
-
-    // Root returns the root of the bucket.
-    pub(crate) fn root(&self) -> PgId {
-        return self.bucket.root_page();
-    }
-
-    /// Returns whether the bucket is writable.
-    pub(crate) fn writeable(&self) -> bool {
-        self.tx().unwrap().writable()
-    }
-
-    pub(crate) fn page_node(&self, root_page: PgId) -> (&Page, &Node) {
-        todo!()
-    }
-
-    pub(crate) fn root_page(&self) -> PgId {
-        return self.bucket.root_page();
-    }
-}
-
 pub(crate) trait RawBucketApi<'tx> {
+    /// Tx returns the tx of the bucket.
+    fn tx(&self) -> Result<Tx<'tx>>;
+
+    /// Root returns the root of the bucket.
+    fn root(&self) -> PgId;
+
+    /// Writable returns whether the bucket is writable.
+    fn writeable(&self) -> bool;
+
+    /// Cursor creates a cursor associated with the bucket.
+    /// The cursor is only valid as long as the transaction is open.
+    /// Do not use a cursor after the transaction is closed.
+    fn cursor(self) -> Result<Cursor<'tx>>;
+
     // forEachPage iterates over every page in a bucket, including inline pages.
     fn for_each_page<F>(self, f: F) -> Result<()>
     where
@@ -256,7 +317,111 @@ pub(crate) trait RawBucketApi<'tx> {
 
     // pageNode returns the in-memory node, if it exists.
     // Otherwise, returns the underlying page.
-    fn page_node(&self) -> Option<Node>;
+    fn page_node(&self, root_page: PgId) -> (&Page, &Node);
+
+    fn root_page(&self) -> PgId;
+}
+
+// Bucket represents a collection of key/value pairs inside the database.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct RawBucket<'tx> {
+    pub(crate) bucket: InBucket,
+    // the associated transaction, WeakTx
+    pub(crate) tx: WeakTx<'tx>,
+    // subbucket cache
+    pub(crate) buckets: RefCell<HashMap<Key, WeakBucket<'tx>>>,
+    // inline page reference
+    pub(crate) page: Option<OwnedPage>,
+    // materialized node for the root page
+    pub(crate) root_node: Option<Node<'tx>>,
+    // node cache
+    // TODO: maybe use refHashMap
+    pub(crate) nodes: RefCell<HashMap<PgId, Node<'tx>>>,
+    // Sets the threshold for filling nodes when they split. By default,
+    // the bucket will fill to 50% but it can be useful to increase this
+    // amount if you know that your write workloads are mostly append-only.
+    //
+    // This is non-persisted across transactions so it must be set in every Tx.
+    pub(crate) fill_percent: f64,
+}
+
+impl<'tx> RawBucketApi<'tx> for RawBucket<'tx> {
+    fn node(&self, child_pgid: PgId, from: crate::node::WeakNode) -> Node {
+        todo!()
+    }
+
+    // Tx returns the tx of the bucket.
+    fn tx(&self) -> Result<Tx<'tx>> {
+        return self.tx.upgrade().ok_or(Error::TxClosed);
+    }
+
+    // Root returns the root of the bucket.
+    fn root(&self) -> PgId {
+        return self.bucket.root_page();
+    }
+
+    /// Returns whether the bucket is writable.
+    fn writeable(&self) -> bool {
+        self.clone().tx().unwrap().writable()
+    }
+
+    fn cursor(self) -> Result<Cursor<'tx>> {
+        todo!()
+    }
+
+    fn page_node(&self, root_page: PgId) -> (&Page, &Node) {
+        todo!()
+    }
+
+    fn root_page(&self) -> PgId {
+        return self.bucket.root_page();
+    }
+
+    fn for_each_page<F>(self, f: F) -> Result<()>
+    where
+        F: FnMut(&Page) -> Result<()>,
+    {
+        todo!()
+    }
+
+    fn for_each_page_node<F>(self, f: F) -> Result<()>
+    where
+        F: FnMut(&Node) -> Result<()>,
+    {
+        todo!()
+    }
+
+    fn _for_each_page_node<F>(self, root: PgId, depth: usize, f: F) -> Result<()>
+    where
+        F: FnMut(&Node) -> Result<()>,
+    {
+        todo!()
+    }
+
+    fn spill(self) -> Result<()> {
+        todo!()
+    }
+
+    fn inlineable(&self) -> bool {
+        todo!()
+    }
+
+    fn max_inline_bucket_size(&self) -> usize {
+        todo!()
+    }
+
+    fn write(&mut self, p: &mut [u8]) -> &Bytes {
+        todo!()
+    }
+
+    fn rebalance(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn free(self) -> Result<()> {
+        todo!()
+    }
 }
 
 // BucketStats records statistics about resources used by a bucket.

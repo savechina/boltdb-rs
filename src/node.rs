@@ -1,4 +1,4 @@
-use crate::bucket::{self, RawBucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::bucket::{self, RawBucket, RawBucketApi, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
 use crate::common::inode::Inodes;
 use crate::common::page::{Page, PageFlags, MIN_KEYS_PER_PAGE};
 use crate::common::page::{

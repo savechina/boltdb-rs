@@ -11,8 +11,12 @@
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
+use crate::bucket::BucketApi;
+use crate::bucket::BucketCell;
 use crate::bucket::RawBucket;
+use crate::bucket::RawBucketApi;
 use crate::common::page;
 use crate::common::page::OwnedPage;
 use crate::common::page::Page;
@@ -20,6 +24,7 @@ use crate::common::types::Bytes;
 use crate::common::PgId;
 use crate::errors::Error;
 use crate::node::Node;
+use crate::Bucket;
 
 pub trait CursorApi<'tx> {
     /// First moves the cursor to the first item in the bucket and returns its key and value.
@@ -236,14 +241,16 @@ pub(crate) trait RawCursorApi<'tx> {
 }
 
 struct RawCursor<'tx> {
-    bucket: &'tx RawBucket<'tx>,
-    stack: RefCell<Vec<ElemRef<'tx>>>,
+    pub(crate) bucket: &'tx RawBucket<'tx>,
+    pub(crate) stack: RefCell<Vec<ElemRef<'tx>>>,
 }
 
 impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     // Bucket returns the bucket that this cursor was created from.
     fn bucket(&self) -> &'tx RawBucket {
-        self.bucket
+        return self.bucket;
+        // let b = Bucket(Arc::new(self.bucket.to_owned()));
+        // &b;
     }
 
     fn raw_first(&self) -> Option<RawEntry<'tx>> {
@@ -251,7 +258,8 @@ impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
         self.stack.borrow_mut().clear();
 
         // Get the root page and node
-        let (p, n) = self.bucket.page_node(self.bucket.root_page());
+
+        let (p, n) = &self.bucket.page_node(self.bucket.root_page());
         self.stack.borrow_mut().push(ElemRef {
             page: Some(p),
             node: Some(n),
