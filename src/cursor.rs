@@ -27,6 +27,9 @@ use crate::node::Node;
 use crate::Bucket;
 
 pub trait CursorApi<'tx> {
+    /// Bucket returns the bucket that this cursor was created from.
+    fn bucket(&self) -> &Bucket<'tx>;
+
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
@@ -63,6 +66,15 @@ pub struct Cursor<'tx> {
 }
 
 impl<'tx> CursorApi<'tx> for Cursor<'tx> {
+    /// Bucket returns the bucket that this cursor was created from.
+    fn bucket(&self) -> &Bucket<'tx> {
+        // let raw_bucket = self.raw.borrow().bucket;
+        // return &Bucket(Arc::new(BucketCell {
+        //     raw: RefCell::new(()),
+        // }));
+        todo!()
+    }
+
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
     /// The returned key and value are only valid for the life of the transaction.
