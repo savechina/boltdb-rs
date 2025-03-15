@@ -1,7 +1,7 @@
 use crate::common::bucket::InBucket;
 use crate::common::page::{OwnedPage, Page, PgId};
 use crate::common::types::{self, Bytes};
-use crate::cursor::Cursor;
+use crate::cursor::{Cursor, ElemRef, RawCursor};
 use crate::errors::{Error, Result};
 use crate::node::Node;
 use crate::tx::{self, Tx, WeakTx};
@@ -156,8 +156,15 @@ impl<'tx> BucketApi<'tx> for Bucket<'tx> {
         return self.0.raw.borrow().writeable();
     }
 
-    fn cursor(self) -> Result<Cursor<'tx>> {
-        todo!()
+    fn cursor(self: Self) -> Result<Cursor<'tx>> {
+        let bucket = self.0.raw.borrow();
+        Ok(Cursor {
+            raw: RefCell::new(RawCursor {
+                bucket: unsafe { &*(&*bucket as *const RawBucket<'tx>) },
+                // stack: RefCell::new(Vec::new()),
+                stack: RefCell::new(Vec::<ElemRef<'tx>>::with_capacity(16)),
+            }),
+        })
     }
 
     fn bucket(self, name: &Bytes) -> Result<Bucket<'tx>> {

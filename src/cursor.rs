@@ -28,7 +28,7 @@ use crate::Bucket;
 
 pub trait CursorApi<'tx> {
     /// Bucket returns the bucket that this cursor was created from.
-    fn bucket(&self) -> &Bucket<'tx>;
+    fn bucket(&self) -> Bucket<'tx>;
 
     /// First moves the cursor to the first item in the bucket and returns its key and value.
     /// If the bucket is empty then a nil key and value are returned.
@@ -62,17 +62,18 @@ pub trait CursorApi<'tx> {
 }
 
 pub struct Cursor<'tx> {
-    raw: RefCell<RawCursor<'tx>>,
+    pub raw: RefCell<RawCursor<'tx>>,
 }
 
 impl<'tx> CursorApi<'tx> for Cursor<'tx> {
     /// Bucket returns the bucket that this cursor was created from.
-    fn bucket(&self) -> &Bucket<'tx> {
-        // let raw_bucket = self.raw.borrow().bucket;
-        // return &Bucket(Arc::new(BucketCell {
-        //     raw: RefCell::new(()),
-        // }));
-        todo!()
+    fn bucket(&self) -> Bucket<'tx> {
+        let raw_cursor = self.raw.borrow();
+        let raw_bucket = raw_cursor.bucket;
+
+        Bucket(Arc::new(BucketCell {
+            raw: RefCell::new(raw_bucket.clone()),
+        }))
     }
 
     /// First moves the cursor to the first item in the bucket and returns its key and value.
@@ -252,7 +253,7 @@ pub(crate) trait RawCursorApi<'tx> {
     fn node(&mut self) -> RefCell<Node<'tx>>;
 }
 
-struct RawCursor<'tx> {
+pub(crate) struct RawCursor<'tx> {
     pub(crate) bucket: &'tx RawBucket<'tx>,
     pub(crate) stack: RefCell<Vec<ElemRef<'tx>>>,
 }
@@ -260,9 +261,7 @@ struct RawCursor<'tx> {
 impl<'tx> RawCursorApi<'tx> for RawCursor<'tx> {
     // Bucket returns the bucket that this cursor was created from.
     fn bucket(&self) -> &'tx RawBucket {
-        return self.bucket;
-        // let b = Bucket(Arc::new(self.bucket.to_owned()));
-        // &b;
+        self.bucket
     }
 
     fn raw_first(&self) -> Option<RawEntry<'tx>> {
@@ -448,7 +447,7 @@ enum PageNode<'tx> {
 /// elemRef represents a reference to an element on a given page/node.
 /// This is used to track the current position of the cursor during iteration.
 #[derive(Debug, Clone)]
-struct ElemRef<'tx> {
+pub(crate) struct ElemRef<'tx> {
     page: Option<&'tx Page>,      // Option for handling potential nil pages
     node: Option<&'tx Node<'tx>>, // Option for handling potential nil nodes
     index: u32,
