@@ -68,8 +68,7 @@ pub struct Cursor<'tx> {
 impl<'tx> CursorApi<'tx> for Cursor<'tx> {
     /// Bucket returns the bucket that this cursor was created from.
     fn bucket(&self) -> Bucket<'tx> {
-        let raw_cursor = self.raw.borrow();
-        let raw_bucket = raw_cursor.bucket;
+        let raw_bucket = self.raw.borrow().bucket;
 
         Bucket(Arc::new(BucketCell {
             raw: RefCell::new(raw_bucket.clone()),

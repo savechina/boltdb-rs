@@ -13,7 +13,7 @@ const BUCKET_HEADER_SIZE: usize = std::mem::size_of::<InBucket>();
 // This is stored as the "value" of a bucket key. If the bucket is small enough,
 // then its root page can be stored inline in the "value", after the bucket
 // header. In the case of inline buckets, the "root" will be 0.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct InBucket {
     root: PgId,    // page id of the bucket's root-level page
     sequence: u64, // monotonically incrementing, used by NextSequence()
