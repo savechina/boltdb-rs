@@ -439,7 +439,7 @@ struct RawEntry<'tx> {
 }
 
 enum PageNode<'tx> {
-    Page(Page),
+    Page(OwnedPage),
     Node(Node<'tx>),
 }
 

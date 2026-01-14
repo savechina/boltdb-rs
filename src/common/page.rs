@@ -2,7 +2,7 @@
 //!
 
 use super::bucket::InBucket;
-use super::meta::{Meta, META_PAGE_SIZE};
+use super::meta::{META_PAGE_SIZE, Meta};
 use super::{load_bucket, must_align};
 use std::borrow::{Borrow, BorrowMut};
 use std::fmt::{self, Display, Formatter};
@@ -982,9 +982,10 @@ mod tests {
         page.set_overflow(0);
 
         let buffer = page.as_slice();
-        let mut new_page = Page::from_slice(buffer);
+        let new_page = Page::from_slice(buffer);
 
-        assert_eq!(buffer, new_page.as_slice());
+        assert_eq!(page.as_slice(), new_page.as_slice());
+        assert_eq!(page.id, new_page.id);
     }
 
     #[test]
