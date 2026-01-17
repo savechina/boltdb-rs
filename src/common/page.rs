@@ -3,7 +3,9 @@
 
 use super::bucket::InBucket;
 use super::meta::{META_PAGE_SIZE, Meta};
+use super::types::PgId;
 use super::{load_bucket, must_align};
+
 use std::borrow::{Borrow, BorrowMut};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
@@ -13,9 +15,6 @@ use std::slice::{self, Iter};
 
 use bitflags::bitflags;
 use std::ptr;
-
-//Page Id
-pub(crate) type PgId = u64;
 
 /// Page header size
 pub(crate) const PAGE_HEADER_SIZE: usize = mem::size_of::<Page>();

@@ -64,8 +64,5 @@ mod tests {
     #[test]
     fn it_works() {
         println!("{}", errors::Error::Checksum);
-
-        let pid: common::page::PgId = 64;
-        assert_eq!(2 + 2, 4);
     }
 }

@@ -1,11 +1,12 @@
-use crate::bucket::{self, RawBucket, RawBucketApi, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::bucket::{self, MAX_FILL_PERCENT, MIN_FILL_PERCENT, RawBucket, RawBucketApi};
 use crate::common::inode::Inodes;
-use crate::common::page::{Page, PageFlags, MIN_KEYS_PER_PAGE};
 use crate::common::page::{
-    PgId, BRANCH_PAGE_ELEMENT_SIZE, LEAF_PAGE_ELEMENT_SIZE, PAGE_HEADER_SIZE,
+    BRANCH_PAGE_ELEMENT_SIZE, LEAF_PAGE_ELEMENT_SIZE, MIN_KEYS_PER_PAGE, PAGE_HEADER_SIZE, Page,
+    PageFlags,
 };
 use crate::common::types::Byte;
 use crate::common::types::Key;
+use crate::common::types::PgId;
 use crate::common::{self, page};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
@@ -13,9 +14,9 @@ use std::io::Read;
 use std::ops::{Deref, Index};
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Weak;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::errors::Result;
 
@@ -82,11 +83,7 @@ impl<'tx> Node<'tx> {
 
     // Returns the minimum number of inodes this node should have.
     pub fn min_keys(&self) -> usize {
-        if self.is_leaf() {
-            1
-        } else {
-            2
-        }
+        if self.is_leaf() { 1 } else { 2 }
     }
 
     pub(crate) fn is_leaf(&self) -> bool {

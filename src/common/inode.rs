@@ -3,8 +3,9 @@ use std::result::Result;
 use std::slice::Iter;
 use std::vec::IntoIter;
 
-use crate::common::page::{BranchPageElement, LeafPageElement, Page, PgId};
+use crate::common::page::{BranchPageElement, LeafPageElement, Page};
 use crate::common::types::Byte;
+use crate::common::types::PgId;
 
 use super::types::{Key, Value};
 

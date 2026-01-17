@@ -1,6 +1,6 @@
 use crate::common::bucket::InBucket;
-use crate::common::page::{OwnedPage, Page, PgId};
-use crate::common::types::{self, Bytes};
+use crate::common::page::{OwnedPage, Page};
+use crate::common::types::{self, Bytes, PgId};
 use crate::cursor::{Cursor, ElemRef, RawCursor};
 use crate::errors::{Error, Result};
 use crate::node::Node;

@@ -1,8 +1,8 @@
 module boltdb_test
 
-go 1.23
+go 1.25
 
-toolchain go1.23.4
+toolchain go1.25.5
 
 require go.etcd.io/bbolt v1.4.0
 

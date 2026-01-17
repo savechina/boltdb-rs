@@ -1,10 +1,12 @@
 use std::fmt::{self, Display, Formatter};
 use std::fs::File;
+use std::path::Path;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 
+use crate::common::TxId;
 use crate::common::meta::Meta;
 use crate::errors::Result;
 use crate::freelist::Freelist;
@@ -58,7 +60,7 @@ where
     //
     // IMPORTANT: You must close read-only transactions after you are finished or
     // else the database will not reclaim old pages.
-    fn begin(&self) -> crate::Result<impl TxApi>;
+    // fn begin(&self) -> crate::Result<impl TxApi>;
 
     // Begin starts a new transaction.
     // Multiple read-only transactions can be used concurrently but only one
@@ -77,7 +79,7 @@ where
     //
     // IMPORTANT: You must close read-only transactions after you are finished or
     // else the database will not reclaim old pages.
-    fn begin_rw(&mut self) -> crate::Result<impl TxApi>;
+    // fn begin_rw(&mut self) -> crate::Result<impl TxApi>;
 
     // View executes a function within the context of a managed read-only transaction.
     // Any error that is returned from the function is returned from the View() method.
@@ -143,7 +145,7 @@ where
 // DB represents a collection of buckets persisted to a file on disk.
 // All data access is performed through transactions which can be obtained through the DB.
 // All the functions on DB will return a ErrDatabaseNotOpen if accessed before Open() is called.
-pub(crate) struct RawDB<'tx> {
+pub(crate) struct RawDB {
     // Put `stats` at the first field to ensure it's 64-bit aligned. Note that
     // the first word in an allocated struct can be relied upon to be 64-bit
     // aligned. Refer to https://pkg.go.dev/sync/atomic#pkg-note-BUG. Also
@@ -240,8 +242,8 @@ pub(crate) struct RawDB<'tx> {
     meta1: Option<Arc<Mutex<Meta>>>, // Thread-safe meta page 1
     page_size: usize,                // Page size for the database
     opened: bool,                    // Whether the database is open or not
-    rwtx: Option<Tx<'tx>>,           // Read-write transaction (writer)
-    txs: Vec<Tx<'tx>>,               // Read-only transactions
+    rwtx: Option<TxId>,              // Read-write transaction (writer)
+    txs: Vec<TxId>,                  // Read-only transactions
 
     freelist: Option<Arc<Mutex<Freelist>>>, // Thread-safe freelist access
     freelist_load: OnceLock<bool>,          // Flag to track freelist loading
@@ -260,6 +262,26 @@ pub(crate) struct RawDB<'tx> {
     read_only: bool, // Read-only mode flag
 }
 
+impl Default for RawDB {
+    fn default() -> Self {
+        RawDB {
+            stats: Arc::new(Mutex::new(Stats::new())),
+            strict_mode: false,
+            no_sync: false,
+            no_freelist_sync: false,
+            freelist_type: FreelistType::Array,
+            no_grow_sync: false,
+            pre_load_freelist: false,
+            mmap_flags: 0,
+            max_batch_size: 0,
+            max_batch_delay: Duration::from_millis(0),
+            alloc_size: 0,
+            mlock: false,
+            ..Default::default()
+        }
+    }
+}
+
 struct Ops {
     write_at: fn(&[u8], i64) -> Result<usize>,
 }
@@ -268,29 +290,96 @@ struct Ops {
 // All data access is performed through transactions which can be obtained through the DB.
 // All the functions on DB will return a ErrDatabaseNotOpen if accessed before Open() is called.
 #[derive(Clone)]
-pub struct DB<'tx>(pub(crate) Arc<RawDB<'tx>>);
+pub struct DB(pub(crate) Arc<RawDB>);
 
-impl<'tx> DB<'tx> {
-    pub(crate) fn begin_tx(&self) -> crate::Result<Tx<'tx>> {
+impl DB {
+    pub(crate) fn begin_tx(&self) -> crate::Result<Tx> {
         let raw_db = self.0.clone();
         let tx = Tx::new();
         Ok(tx)
     }
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct WeakDB<'tx>(Weak<RawDB<'tx>>);
+impl DB {
+    /// Open creates and opens a database at the given path.
+    /// If the file does not exist then it will be created automatically.
+    pub fn open<T: AsRef<Path>>(path: T) -> crate::Result<Self> {
+        // DB::open_path(path, Options::default())
+        Ok(DB(Arc::new(RawDB::default())))
+    }
 
-impl<'tx> WeakDB<'tx> {
-    pub(crate) fn new() -> WeakDB<'tx> {
+    pub fn path(&self) -> String {
+        self.0.path.clone()
+    }
+}
+
+impl DbApi for DB {
+    // fn begin_tx(&self) -> crate::Result<impl TxApi> {
+    //     self.begin_tx()
+    // }
+    fn path(&self) -> String {
+        self.path()
+    }
+
+    // fn begin(&self) -> crate::Result<impl TxApi> {
+    //     Ok(())
+    // }
+
+    // fn begin_rw(&mut self) -> crate::Result<impl TxApi> {
+    //     todo!()
+    // }
+
+    fn view<'tx, Handler>(&'tx self, handler: Handler) -> crate::Result<()>
+    where
+        Handler: FnMut(Tx<'tx>) -> crate::Result<()>,
+    {
+        todo!()
+    }
+
+    fn update<'tx, Handler>(&'tx mut self, handler: Handler) -> crate::Result<()>
+    where
+        Handler: FnMut(Tx<'tx>) -> crate::Result<()>,
+    {
+        todo!()
+    }
+
+    fn batch<'tx, Handler>(&'tx mut self, handler: Handler) -> crate::Result<()>
+    where
+        Handler: FnMut(Tx<'tx>) -> crate::Result<()> + Send + Sync + Clone + 'static,
+    {
+        todo!()
+    }
+
+    fn close(self) -> crate::Result<()> {
+        todo!()
+    }
+
+    fn sync(&mut self) -> crate::Result<()> {
+        todo!()
+    }
+
+    fn stats(&self) -> Arc<Stats> {
+        todo!()
+    }
+
+    fn info(&self) -> Info {
+        todo!()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct WeakDB(Weak<RawDB>);
+
+impl<'tx> WeakDB {
+    pub(crate) fn new() -> WeakDB {
         WeakDB(Weak::new())
     }
 
-    pub(crate) fn upgrade(&self) -> Option<DB<'tx>> {
+    pub(crate) fn upgrade(&self) -> Option<DB> {
         self.0.upgrade().map(DB)
     }
 
-    pub(crate) fn from(db: &DB<'tx>) -> WeakDB<'tx> {
+    pub(crate) fn from(db: &DB) -> WeakDB {
         WeakDB(Arc::downgrade(&db.0))
     }
 }
@@ -557,8 +646,11 @@ mod tests {
 
         let len = data.len();
 
+        println!("Data length: {}", len);
+
         let data_ptr: *mut u8 = data.as_ptr() as *mut u8; // 示例内存地址
         let non_null_ptr = NonNull::new(data_ptr);
+        assert!(non_null_ptr.is_some(), "NonNull pointer should not be null");
 
         if let Some(ptr) = non_null_ptr {
             let info = Info {

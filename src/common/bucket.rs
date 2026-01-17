@@ -4,7 +4,8 @@
 
 use std::fmt;
 
-use crate::common::page::{Page, PgId};
+use crate::common::page::Page;
+use crate::common::types::PgId;
 
 // 使用 std::mem::size_of 函数获取 InBucket 结构体的字节大小
 const BUCKET_HEADER_SIZE: usize = std::mem::size_of::<InBucket>();
@@ -14,6 +15,7 @@ const BUCKET_HEADER_SIZE: usize = std::mem::size_of::<InBucket>();
 // then its root page can be stored inline in the "value", after the bucket
 // header. In the case of inline buckets, the "root" will be 0.
 #[derive(Debug, Default, Clone, Copy)]
+#[repr(C)] // 确保 C 兼容的内存布局
 pub(crate) struct InBucket {
     root: PgId,    // page id of the bucket's root-level page
     sequence: u64, // monotonically incrementing, used by NextSequence()

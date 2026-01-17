@@ -1,7 +1,7 @@
 //!
 //!  Bolt default type declare
 //!
-use crate::common::page::PgId;
+
 use once_cell::sync::Lazy;
 use page_size;
 use std::time::Duration;
@@ -44,6 +44,9 @@ pub(crate) const DEFAULT_ALLOC_SIZE: usize = 16 * 1024 * 1024;
 // DefaultPageSize is the default page size for db which is set to the OS page size.
 pub(crate) static DEFAULT_PAGE_SIZE: Lazy<usize> = Lazy::new(|| page_size::get());
 
+//Page Id
+pub(crate) type PgId = u64;
+
 // 内部事务标识符
 // Txid represents the internal transaction identifier.
 pub(crate) type TxId = u64;
@@ -74,5 +77,25 @@ mod tests {
 
         println!("system page size:{}", page_size);
         assert_eq!(16384, page_size);
+    }
+
+    #[test]
+    fn test_page_id() {
+        let page_id: PgId = 64;
+        println!("page id:{}", page_id);
+
+        let page_next_id: PgId = page_id + 1;
+        println!("page next id:{}", page_next_id);
+        assert_eq!(65, page_next_id);
+    }
+
+    #[test]
+    fn test_tx_id() {
+        let tx_id: TxId = 64;
+        println!("tx id:{}", tx_id);
+
+        let tx_next_id: TxId = tx_id + 1;
+        println!("tx next id:{}", tx_next_id);
+        assert_eq!(65, tx_next_id);
     }
 }

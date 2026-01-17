@@ -1,6 +1,6 @@
 use crate::common::bucket::InBucket;
-use crate::common::page::PgId;
-use crate::common::types::{TxId, MAGIC, VERSION};
+use crate::common::types::PgId;
+use crate::common::types::{MAGIC, TxId, VERSION};
 use crate::errors::Error;
 use crate::errors::Result;
 use fnv::FnvHasher;

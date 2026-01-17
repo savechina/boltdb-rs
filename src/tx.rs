@@ -6,20 +6,22 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
+use crate::Bucket;
 use crate::bucket::{BucketStructure, RawBucket, WeakBucket};
+use crate::common::TxId;
 use crate::common::meta::Meta;
-use crate::common::page::{OwnedPage, PageInfo, PgId};
+use crate::common::page::{OwnedPage, PageInfo};
 use crate::common::types::Bytes;
+use crate::common::types::PgId;
 use crate::cursor::Cursor;
 use crate::db::WeakDB;
-use crate::Bucket;
 
 pub trait TxApi<'tx>: Clone + Send + Sync {
     /// ID returns the transaction id.
-    fn id(&self) -> u64;
+    fn id(&self) -> TxId;
 
     // DB returns a reference to the database that created the transaction.
-    fn db(&self) -> WeakDB<'tx>;
+    fn db(&self) -> WeakDB;
 
     // Size returns current database size in bytes as seen by this transaction.
     fn size(&self) -> u64;
@@ -199,7 +201,7 @@ pub struct RawTx<'tx> {
 
     managed: AtomicBool,
 
-    db: RwLock<WeakDB<'tx>>,
+    db: RwLock<WeakDB>,
     /// transaction meta
     meta: RwLock<Meta>,
     /// root bucket
