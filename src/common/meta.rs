@@ -231,11 +231,32 @@ impl fmt::Display for Meta {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::types::DEFAULT_PAGE_SIZE;
+
     use super::*;
 
     #[test]
-    fn it_works() {
-        println!("{}", Error::Checksum);
-        assert_eq!(2 + 2, 4);
+    fn test_meta() {
+        let mut buf = vec![0u8; 1024];
+        let mut page = Page::from_slice_mut(&mut buf);
+
+        let mut meta = Meta {
+            magic: MAGIC,
+            version: VERSION,
+            page_size: *DEFAULT_PAGE_SIZE as u32,
+            flags: 0,
+            root: Default::default(),
+            freelist: 5,
+            pgid: 10,
+            txid: 2,
+            checksum: 23,
+        };
+
+        let _ = meta.write(page);
+
+        assert!(meta.validate().is_ok());
+        assert_eq!(10, meta.pgid);
+        assert!(page.is_meta_page());
+        assert!(page.meta().pgid() == 10);
     }
 }

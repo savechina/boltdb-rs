@@ -117,7 +117,19 @@ impl<'tx> Tx<'tx> {
     }
 
     pub(crate) fn new() -> Self {
-        Self(todo!())
+        Self(Arc::new(TxCell {
+            raw: RefCell::new(RawTx {
+                writable: AtomicBool::new(false),
+                managed: AtomicBool::new(false),
+                db: RwLock::new(WeakDB::new()),
+                meta: RwLock::new(Meta::default()),
+                root: RwLock::new(WeakBucket::new()),
+                pages: RwLock::new(HashMap::new()),
+                stats: None,
+                commit_handlers: Vec::new(),
+                write_flag: 0,
+            }),
+        }))
     }
 }
 

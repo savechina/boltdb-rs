@@ -617,10 +617,25 @@ struct Info {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
+
     use super::*;
 
     #[test]
+    fn test_struct_size() {
+        println!("RawDB size: {} bytes", std::mem::size_of::<RawDB>());
+        // 同时也看看 Stats 及其它主要组件的大小
+        println!("Stats size: {} bytes", std::mem::size_of::<Stats>());
+
+        println!("DB size: {} bytes", std::mem::size_of::<DB>());
+
+        println!("Options size: {} bytes", std::mem::size_of::<Options>());
+    }
+
+    #[test]
     fn test_db_create() {
+        println!("RawDB size: {} bytes", std::mem::size_of::<RawDB>());
+
         let db = DB(Arc::new(RawDB {
             stats: Arc::new(Mutex::new(Stats::new())),
             strict_mode: false,
@@ -634,9 +649,37 @@ mod tests {
             max_batch_delay: Duration::from_secs(0),
             alloc_size: 0,
             mlock: false,
-            ..Default::default()
+            page_size: 4096,
+            page_pool: Mutex::new(Vec::new()),
+            rwlock: Mutex::new(()),
+            path: String::from("test.db"),
+            file: None,
+            dataref: None,
+            data: None,
+            datasz: 2048,
+            meta0: Some(Arc::new(Mutex::new(Meta::default()))),
+            meta1: Some(Arc::new(Mutex::new(Meta::default()))),
+            opened: true,
+            rwtx: None,
+            txs: vec![],
+            freelist: None,
+            freelist_load: OnceLock::new(),
+            batch_mu: Mutex::new(None),
+            metalock: Mutex::new(()),
+            mmaplock: RwLock::new(()),
+            statlock: RwLock::new(()),
+            ops: Ops {
+                write_at: |_buf: &[u8], _off: i64| Ok(0),
+            },
+            read_only: false,
+            // ..Default::default()
         }));
-        // let tx = db.begin_tx().unwrap();
+
+        // assert_eq!(db.path(), "test.db");
+
+        let tx = db.begin_tx().unwrap();
+
+        println!("Transaction created: {:?}", tx.writable());
         // assert_eq!(tx.writable(), false);
     }
 
