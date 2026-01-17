@@ -620,22 +620,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_db() {
-        // let db = DB(Arc::new(RawDB {
-        //     stats: Arc::new(Mutex::new(Stats {})),
-        //     strict_mode: false,
-        //     no_sync: false,
-        //     no_freelist_sync: false,
-        //     freelist_type: FreelistType::Array,
-        //     no_grow_sync: false,
-        //     pre_load_freelist: false,
-        //     mmap_flags: 0,
-        //     max_batch_size: 0,
-        //     max_batch_delay: Duration::from_secs(0),
-        //     alloc_size: 0,
-        //     mlock: false,
-        //     ..Default::default()
-        // }));
+    fn test_db_create() {
+        let db = DB(Arc::new(RawDB {
+            stats: Arc::new(Mutex::new(Stats::new())),
+            strict_mode: false,
+            no_sync: false,
+            no_freelist_sync: false,
+            freelist_type: FreelistType::Array,
+            no_grow_sync: false,
+            pre_load_freelist: false,
+            mmap_flags: 0,
+            max_batch_size: 0,
+            max_batch_delay: Duration::from_secs(0),
+            alloc_size: 0,
+            mlock: false,
+            ..Default::default()
+        }));
         // let tx = db.begin_tx().unwrap();
         // assert_eq!(tx.writable(), false);
     }

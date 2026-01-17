@@ -364,3 +364,22 @@ impl Clone for TxStats {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tx_stats_default() {
+        let tx = TxStats::default();
+        assert_eq!(tx.write.load(Ordering::Relaxed), 0);
+        tx.inc_write();
+        assert_eq!(tx.write.load(Ordering::Relaxed), 1);
+        tx.inc_page_count();
+        assert_eq!(tx.page_count.load(Ordering::Relaxed), 1);
+        tx.inc_cursor_count();
+        assert_eq!(tx.cursor_count.load(Ordering::Relaxed), 1);
+        tx.inc_node_deref();
+        assert_eq!(tx.node_deref.load(Ordering::Relaxed), 1);
+    }
+}
