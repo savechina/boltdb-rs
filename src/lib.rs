@@ -52,6 +52,9 @@ mod cursor;
 mod db;
 mod tx;
 
+#[cfg(test)]
+mod testing;
+
 pub use bucket::Bucket;
 pub use db::DB;
 pub use errors::{Error, Result};
@@ -60,9 +63,12 @@ pub use tx::Tx;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::temp_file;
 
     #[test]
     fn it_works() {
-        println!("{}", errors::Error::Checksum);
+        let db_file = temp_file().unwrap();
+
+        println!("{}", db_file.path().display());
     }
 }

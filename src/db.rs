@@ -85,9 +85,9 @@ where
     // Any error that is returned from the function is returned from the View() method.
     //
     // Attempting to manually rollback within the function will cause a panic.
-    fn view<'tx, Handler>(&'tx self, handler: Handler) -> crate::Result<()>
+    fn view<'tx, Fn>(&'tx self, f: Fn) -> crate::Result<()>
     where
-        Handler: FnMut(Tx<'tx>) -> crate::Result<()>;
+        Fn: FnMut(Tx<'tx>) -> crate::Result<()>;
 
     // Update executes a function within the context of a read-write managed transaction.
     // If no error is returned from the function then the transaction is committed.
@@ -96,9 +96,9 @@ where
     // returned from the Update() method.
     //
     // Attempting to manually commit or rollback within the function will cause a panic.
-    fn update<'tx, Handler>(&'tx mut self, handler: Handler) -> crate::Result<()>
+    fn update<'tx, Fn>(&'tx mut self, f: Fn) -> crate::Result<()>
     where
-        Handler: FnMut(Tx<'tx>) -> crate::Result<()>;
+        Fn: FnMut(Tx<'tx>) -> crate::Result<()>;
 
     // Batch calls fn as part of a batch. It behaves similar to Update,
     // except:
@@ -304,6 +304,12 @@ impl DB {
     /// Open creates and opens a database at the given path.
     /// If the file does not exist then it will be created automatically.
     pub fn open<T: AsRef<Path>>(path: T) -> crate::Result<Self> {
+        DB::open_with(path, Options::default())
+    }
+
+    /// Open creates and opens a database at the given path.
+    /// If the file does not exist then it will be created automatically.
+    pub fn open_with<T: AsRef<Path>>(path: T, options: Options) -> crate::Result<Self> {
         // DB::open_path(path, Options::default())
         Ok(DB(Arc::new(RawDB::default())))
     }
@@ -329,21 +335,39 @@ impl DbApi for DB {
     //     todo!()
     // }
 
-    fn view<'tx, Handler>(&'tx self, handler: Handler) -> crate::Result<()>
+    fn view<'tx, Fn>(&'tx self, mut f: Fn) -> crate::Result<()>
+    where
+        Fn: FnMut(Tx<'tx>) -> crate::Result<()>,
+    {
+        let tx = self.begin_tx()?;
+
+        let result = f(tx);
+        result
+    }
+
+    fn update<'tx, Handler>(&'tx mut self, mut f: Handler) -> crate::Result<()>
     where
         Handler: FnMut(Tx<'tx>) -> crate::Result<()>,
     {
-        todo!()
+        let tx = self.begin_tx()?;
+
+        let result = f(tx);
+
+        match result {
+            Ok(_) => {
+                // commit tx
+                // tx.commit()?;
+                Ok(())
+            }
+            Err(e) => {
+                // rollback tx
+                // tx.rollback()?;
+                Err(e)
+            }
+        }
     }
 
-    fn update<'tx, Handler>(&'tx mut self, handler: Handler) -> crate::Result<()>
-    where
-        Handler: FnMut(Tx<'tx>) -> crate::Result<()>,
-    {
-        todo!()
-    }
-
-    fn batch<'tx, Handler>(&'tx mut self, handler: Handler) -> crate::Result<()>
+    fn batch<'tx, Handler>(&'tx mut self, mut handler: Handler) -> crate::Result<()>
     where
         Handler: FnMut(Tx<'tx>) -> crate::Result<()> + Send + Sync + Clone + 'static,
     {
@@ -619,10 +643,12 @@ struct Info {
 mod tests {
     use std::any::Any;
 
+    use crate::testing::TestDb;
+
     use super::*;
 
     #[test]
-    fn test_struct_size() {
+    fn test_db_size() {
         println!("RawDB size: {} bytes", std::mem::size_of::<RawDB>());
         // 同时也看看 Stats 及其它主要组件的大小
         println!("Stats size: {} bytes", std::mem::size_of::<Stats>());
@@ -681,6 +707,21 @@ mod tests {
 
         println!("Transaction created: {:?}", tx.writable());
         // assert_eq!(tx.writable(), false);
+    }
+
+    #[test]
+    fn test_view() {
+        let test_db = TestDb::new(Options::default()).unwrap();
+
+        test_db
+            .db
+            .as_ref()
+            .unwrap()
+            .view(|tx| {
+                println!("Inside view transaction, writable: {}", tx.writable());
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
