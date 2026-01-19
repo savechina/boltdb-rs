@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::common::TxId;
 use crate::common::meta::Meta;
+use crate::common::types::DEFAULT_PAGE_SIZE;
 use crate::errors::Result;
 use crate::freelist::Freelist;
 use crate::tx::{Tx, TxApi, TxStats};
@@ -277,10 +278,37 @@ impl Default for RawDB {
             max_batch_delay: Duration::from_millis(0),
             alloc_size: 0,
             mlock: false,
-            ..Default::default()
+            page_size: *DEFAULT_PAGE_SIZE,
+            page_pool: Mutex::new(Vec::new()),
+            rwlock: Mutex::new(()),
+            path: String::from("test.db"),
+            file: None,
+            dataref: None,
+            data: None,
+            datasz: 2048,
+            meta0: Some(Arc::new(Mutex::new(Meta::default()))),
+            meta1: Some(Arc::new(Mutex::new(Meta::default()))),
+            opened: true,
+            rwtx: None,
+            txs: vec![],
+            freelist: None,
+            freelist_load: OnceLock::new(),
+            batch_mu: Mutex::new(None),
+            metalock: Mutex::new(()),
+            mmaplock: RwLock::new(()),
+            statlock: RwLock::new(()),
+            ops: Ops {
+                write_at: |_buf: &[u8], _off: i64| Ok(0),
+            },
+            read_only: false,
         }
     }
 }
+
+unsafe impl Send for RawDB {}
+unsafe impl Sync for RawDB {}
+
+impl RawDB {}
 
 struct Ops {
     write_at: fn(&[u8], i64) -> Result<usize>,
@@ -375,6 +403,7 @@ impl DbApi for DB {
     }
 
     fn close(self) -> crate::Result<()> {
+        // unimplemented!()
         todo!()
     }
 
@@ -500,7 +529,7 @@ impl Options {
 impl Default for Options {
     fn default() -> Self {
         Options {
-            timeout: Duration::from_secs(0),
+            timeout: Duration::from_secs(30),
             no_grow_sync: false,
             no_freelist_sync: false,
             pre_load_freelist: false,
@@ -508,7 +537,7 @@ impl Default for Options {
             read_only: false,
             mmap_flags: 0,
             initial_mmap_size: 0,
-            page_size: 0,
+            page_size: *DEFAULT_PAGE_SIZE,
             no_sync: false,
             open_file: None,
             mlock: false,
@@ -641,9 +670,8 @@ struct Info {
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-
     use crate::testing::TestDb;
+    use crate::{Error, Result};
 
     use super::*;
 
@@ -701,8 +729,6 @@ mod tests {
             // ..Default::default()
         }));
 
-        // assert_eq!(db.path(), "test.db");
-
         let tx = db.begin_tx().unwrap();
 
         println!("Transaction created: {:?}", tx.writable());
@@ -710,18 +736,32 @@ mod tests {
     }
 
     #[test]
-    fn test_view() {
-        let test_db = TestDb::new(Options::default()).unwrap();
+    fn test_open() -> Result<()> {
+        let db = TestDb::new()?;
 
-        test_db
-            .db
-            .as_ref()
-            .unwrap()
-            .view(|tx| {
-                println!("Inside view transaction, writable: {}", tx.writable());
-                Ok(())
-            })
-            .unwrap();
+        // db.clone_db().close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_view() -> Result<()> {
+        let db = TestDb::new()?;
+
+        db.view(|tx| {
+            println!("Inside view transaction, writable: {}", tx.writable());
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_view_error() -> Result<()> {
+        let db = TestDb::new()?;
+
+        let result = db.view(|tx| Err(Error::Invalid)).err();
+        assert_eq!(Some(Error::Invalid), result);
+        Ok(())
     }
 
     #[test]

@@ -141,6 +141,8 @@ impl From<&'static str> for Error {
     }
 }
 
+impl Eq for Error {}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 // pub(crate) fn is_valid_error(err: &std::io::Error) -> bool {
