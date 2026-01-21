@@ -1,6 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
@@ -42,7 +42,7 @@ where
     Self: Sized,
 {
     // Path returns the path to currently open database file.
-    fn path(&self) -> String;
+    fn path(&self) -> Option<PathBuf>;
 
     // Begin starts a new transaction.
     // Multiple read-only transactions can be used concurrently but only one
@@ -230,7 +230,7 @@ pub(crate) struct RawDB {
     mlock: bool,
 
     // logger: Option<Logger>, // Optional logger
-    path: String,
+    path: Arc<PathBuf>,
     file: Option<Arc<Mutex<File>>>, // Thread-safe file handle
 
     // `dataref` isn't used at all on Windows, and the golangci-lint
@@ -281,7 +281,7 @@ impl Default for RawDB {
             page_size: *DEFAULT_PAGE_SIZE,
             page_pool: Mutex::new(Vec::new()),
             rwlock: Mutex::new(()),
-            path: String::from("test.db"),
+            path: Arc::new(PathBuf::from("test.db")),
             file: None,
             dataref: None,
             data: None,
@@ -308,7 +308,64 @@ impl Default for RawDB {
 unsafe impl Send for RawDB {}
 unsafe impl Sync for RawDB {}
 
-impl RawDB {}
+impl RawDB {
+    fn new(path: &Path, options: Options) -> crate::Result<RawDB> {
+        options.no_sync;
+
+        let page_size = options.page_size;
+
+        // options.open_file;
+
+        Ok(RawDB {
+            path: Arc::new(path.to_path_buf().clone()),
+            no_grow_sync: options.no_grow_sync,
+            no_freelist_sync: options.no_freelist_sync,
+            pre_load_freelist: options.pre_load_freelist,
+            freelist_type: options.freelist_type,
+            read_only: options.read_only,
+            mmap_flags: options.mmap_flags,
+            page_size: options.page_size,
+            no_sync: options.no_sync,
+            ..Default::default()
+        })
+    }
+
+    fn page_size(&self) -> usize {
+        self.page_size
+    }
+
+    fn meta(&self) -> Meta {
+        // We have to return the meta with the highest txid which doesn't fail
+        // validation. Otherwise, we can cause errors when in fact the database is
+        // in a consistent state. metaA is the one with the higher txid.
+
+        let meta0 = self.meta0();
+        let meta1 = self.meta1();
+
+        let (meta_a, meta_b) = {
+            if meta1.txid() > meta0.txid() {
+                (meta1, meta0)
+            } else {
+                (meta0, meta1)
+            }
+        };
+        if meta_a.validate().is_ok() {
+            return meta_a;
+        } else if meta_b.validate().is_ok() {
+            return meta_b;
+        }
+        panic!("bolt.db.meta: invalid meta page")
+    }
+
+    fn meta0(&self) -> Meta {
+        // Assuming meta0 is always Some for this example
+        self.meta0.as_ref().unwrap().lock().unwrap().clone()
+    }
+    fn meta1(&self) -> Meta {
+        // Assuming meta1 is always Some for this example
+        self.meta1.as_ref().unwrap().lock().unwrap().clone()
+    }
+}
 
 struct Ops {
     write_at: fn(&[u8], i64) -> Result<usize>,
@@ -338,12 +395,11 @@ impl DB {
     /// Open creates and opens a database at the given path.
     /// If the file does not exist then it will be created automatically.
     pub fn open_with<T: AsRef<Path>>(path: T, options: Options) -> crate::Result<Self> {
-        // DB::open_path(path, Options::default())
-        Ok(DB(Arc::new(RawDB::default())))
+        Ok(DB(Arc::new(RawDB::new(path.as_ref(), options)?)))
     }
 
-    pub fn path(&self) -> String {
-        self.0.path.clone()
+    pub fn path(&self) -> Option<PathBuf> {
+        Some((*self.0.path).clone())
     }
 }
 
@@ -351,7 +407,7 @@ impl DbApi for DB {
     // fn begin_tx(&self) -> crate::Result<impl TxApi> {
     //     self.begin_tx()
     // }
-    fn path(&self) -> String {
+    fn path(&self) -> Option<PathBuf> {
         self.path()
     }
 
@@ -706,7 +762,7 @@ mod tests {
             page_size: 4096,
             page_pool: Mutex::new(Vec::new()),
             rwlock: Mutex::new(()),
-            path: String::from("test.db"),
+            path: Arc::new(PathBuf::from("test.db")),
             file: None,
             dataref: None,
             data: None,
